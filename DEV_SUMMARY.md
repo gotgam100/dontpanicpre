@@ -5,12 +5,32 @@
 
 ---
 
+## ⚠️ 파일 구조 — 반드시 먼저 읽을 것
+
+이 프로젝트는 파일이 분리되어 있습니다. **`index.html`은 HTML 뼈대만** 담고 있으며,
+실제 로직과 스타일은 아래 파일에 있습니다.
+
+| 파일 | 역할 | 줄 수 |
+|------|------|-------|
+| `index.html` | HTML 구조 (오버레이, 탭 패널, 버튼 등) | ~877줄 |
+| `assets/app.js` | **모든 JavaScript 로직** (저장, 인증, UI, 에디터 등) | ~6740줄 |
+| `assets/app.css` | 메인 스타일 | ~2170줄 |
+| `assets/responsive.js` | 모바일 대응, 테마, 청크 렌더 | ~162줄 |
+| `assets/responsive.css` | 반응형 미디어쿼리 | 별도 |
+| `sw.js` | Service Worker (캐시 전략) | ~100줄 |
+
+> **JavaScript 수정 = `assets/app.js` 수정**  
+> **HTML 수정 = `index.html` 수정**  
+> `index.html` 안에 `<script>` 태그로 JS를 추가하지 말 것.
+
+---
+
 ## 프로젝트 개요
 
 **Don't Panic Pre** — 영화/드라마 사전제작(pre-production) 웹앱 PWA  
 - 순수 Vanilla JS, Firebase CDN compat SDK (ES Module 미사용)
 - 로컬 서버: `python3 serve.py` → `http://localhost:8080`
-- 주요 파일: `index.html`, `assets/app.js` (~6740줄), `assets/app.css` (~2170줄), `assets/responsive.js`
+- 확인은 반드시 `http://localhost:8080`에서 (file:// 열기는 Firebase Auth 미작동)
 
 ---
 
