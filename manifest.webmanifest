@@ -1,0 +1,33 @@
+{
+  "name": "Don't Panic Pre",
+  "short_name": "Pre",
+  "description": "영화 프리프로덕션 — 스크립트, 씬리스트, 콜시트, 스케줄을 한 곳에서.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0d0f18",
+  "theme_color": "#0d0f18",
+  "lang": "ko",
+  "categories": ["productivity"],
+  "icons": [
+    {
+      "src": "assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

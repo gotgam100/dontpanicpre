@@ -1,0 +1,212 @@
+/* ============================================================
+ * responsive.css — Phase 2a: foundation only
+ * Loaded AFTER app.css so rules here override safely.
+ * Goal: improve mobile usability WITHOUT changing desktop layout.
+ * ============================================================ */
+
+/* ---------- Safe-area for notch / home indicator ---------- */
+@supports (padding: max(0px)) {
+  body {
+    padding-left:  env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  /* drawer: push content below notch */
+  .mobile-nav-drawer {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
+  }
+}
+
+/* ---------- Prevent iOS auto-zoom on focus (inputs must be >=16px) ---------- */
+@media (max-width: 1024px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="date"],
+  input[type="time"],
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/* ---------- Tablet & phone: horizontal-scrollable top nav (no layout change) ---------- */
+@media (max-width: 1199px) {
+  .header {
+    flex-wrap: wrap;
+  }
+  .nav {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-wrap: nowrap;
+    max-width: 100%;
+  }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav-btn {
+    flex-shrink: 0;
+    min-height: 44px;
+  }
+  .header-right {
+    flex-wrap: wrap;
+  }
+}
+
+/* ---------- Phone: hide header, show only safe-area gap ---------- */
+@media (max-width: 767px) {
+  /* collapse header to just the notch safe-area — content stays below notch */
+  .header {
+    height: env(safe-area-inset-top, 0px);
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+  .header > * {
+    display: none !important;
+  }
+  /* main fills the rest: below notch, above home indicator + bottom tab bar */
+  .main {
+    height: calc(100dvh - env(safe-area-inset-top, 0px));
+  }
+  body {
+    overflow-x: hidden;
+  }
+}
+
+/* ---------- Light pointer hint: disable hover effects on touch-only ---------- */
+@media (hover: none) {
+  .nav-btn:hover { background: inherit; color: inherit; }
+}
+
+/* ============================================================
+ * LIGHT THEME — overrides :root dark tokens
+ * ============================================================ */
+html[data-theme="light"] {
+  --bg:          #f5f7fa;
+  --surface:     #ffffff;
+  --surface2:    #f0f2f9;
+  --surface3:    #e4e8f4;
+  --border:      #d4d9ee;
+  --border2:     #b8bfdb;
+  --text:        #1a1d2e;
+  --text-muted:  #5a6480;
+  --text-dim:    #8e97b4;
+  --accent:      #4f5fd4;
+  --accent-glow: rgba(79,95,212,0.12);
+  --c-head:      #111827;
+  --c-char:      #4338ca;
+  --c-dial:      #374151;
+}
+
+/* ============================================================
+ * SCRIPT READ MODE fabs
+ * ============================================================ */
+.read-mode-fab {
+  display: none; /* shown via JS on phone */
+  position: absolute;
+  bottom: 80px; /* above bottom tab bar */
+  right: 16px;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  padding: 0 20px;
+  border-radius: 22px;
+  border: none;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  z-index: 50;
+  box-shadow: 0 2px 12px rgba(0,0,0,.3);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.read-mode-fab--edit {
+  background: var(--accent);
+  color: #fff;
+}
+
+.read-mode-fab--done {
+  background: #22c55e;
+  color: #fff;
+}
+
+@media (max-width: 767px) {
+  /* script editor read mode: visually distinct */
+  #scriptEditor[contenteditable="false"] {
+    cursor: default;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+}
+
+/* ============================================================
+ * Bottom Tab Bar — phone only (<768px)
+ * ============================================================ */
+.bottom-tab-bar {
+  display: none; /* hidden on desktop/tablet by default */
+}
+
+@media (max-width: 767px) {
+  /* show the bar */
+  .bottom-tab-bar {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 900;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .btab-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 8px 4px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    min-height: 52px;
+    transition: color 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .btab-btn.on {
+    color: var(--accent);
+  }
+
+  .btab-btn:active {
+    background: var(--surface2);
+  }
+
+  .btab-icon {
+    font-size: 20px;
+    line-height: 1;
+  }
+
+  .btab-label {
+    font-size: 10px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  /* push main content up so it's not hidden behind the bar */
+  .main {
+    padding-bottom: calc(60px + env(safe-area-inset-bottom));
+  }
+
+  /* hide the desktop top nav on phone — drawer handles it */
+  .nav {
+    display: none;
+  }
+}
