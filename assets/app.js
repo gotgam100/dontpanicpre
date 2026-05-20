@@ -852,15 +852,19 @@ function updatePageBreaks() {
   }
   layer.innerHTML = html;
 
-  // 상태바: 총 페이지 + 씬 수
+  // 상태바: 총 페이지 (항상) + 씬 수 (있을 때만)
   const el = document.getElementById('parseStatus');
   if (el) {
     const sc = scenes.length;
-    el.innerHTML = sc
-      ? `<span style="color:var(--text-dim);font-weight:400">총 </span><b style="color:var(--text);font-weight:700">${totalPages}</b><span style="color:var(--text-dim);font-weight:400"> 페이지</span>`
-      + `<span style="color:var(--border2);margin:0 6px">|</span>`
-      + `<b style="color:var(--text);font-weight:700">${sc}</b><span style="color:var(--text-dim);font-weight:400"> 씬</span>`
+    const pageStr = `<span style="color:var(--text-dim);font-weight:400">총 </span>`
+      + `<b style="color:var(--text);font-weight:700">${totalPages}</b>`
+      + `<span style="color:var(--text-dim);font-weight:400"> 페이지</span>`;
+    const sceneStr = sc
+      ? `<span style="color:var(--border2);margin:0 6px">|</span>`
+        + `<b style="color:var(--text);font-weight:700">${sc}</b>`
+        + `<span style="color:var(--text-dim);font-weight:400"> 씬</span>`
       : '';
+    el.innerHTML = pageStr + sceneStr;
   }
 }
 
@@ -6794,7 +6798,10 @@ async function confirmNewProject() {
 
   switchTab('editor', document.querySelector('.nav-btn'));
   const editor = ed();
-  if (editor) editor.innerHTML = '<p class="l-heading"><br></p>';
+  if (editor) {
+    editor.innerHTML = '<p class="l-heading"><br></p>';
+    editor.style.minHeight = ''; // 이전 프로젝트 minHeight 초기화
+  }
   document.getElementById('projectName').value = name;
   document.getElementById('authorName').value  = '';
   document.getElementById('projectDate').value = '';
@@ -6806,6 +6813,7 @@ async function confirmNewProject() {
   callSheets = []; currentCSIdx = 0;
   renderLeftSidebar();
   _dataLoaded = true;
+  updatePageBreaks(); // 1페이지로 즉시 초기화
 
   // 선택한 폴더에 즉시 JSON 파일 생성 (두 모드 공통)
   await doSave();
