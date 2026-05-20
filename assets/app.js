@@ -6202,19 +6202,35 @@ function removeRecentProject(idx) {
   localStorage.setItem('dpre-recent', JSON.stringify(list));
   renderRecentProjects();
 }
+let _recentExpanded = false;
+
 function renderRecentProjects() {
   const el = document.getElementById('recentProjectsList');
   if (!el) return;
-  const list = getRecentProjects().slice(0, 3); // 최대 3개만 표시
-  if (!list.length) {
+  const allList = getRecentProjects().slice(0, 3);
+  if (!allList.length) {
     el.innerHTML = '<div class="recent-empty">아직 열어 본 프로젝트가 없습니다.</div>';
     return;
   }
-  el.innerHTML = list.map((p, i) => `
+  const showList = _recentExpanded ? allList : allList.slice(0, 1);
+  const items = showList.map((p, i) => `
     <div class="recent-project-item" onclick="openRecentProject(${i})">
-      <div class="recent-project-name">${p.name}</div>
-      <div class="recent-project-path">📁 ${p.folderPath || p.folderName}</div>
+      <div class="recent-project-name">${esc(p.name)}</div>
+      <div class="recent-project-path">📁 ${esc(p.folderPath || p.folderName || '')}</div>
     </div>`).join('');
+  const moreCount = allList.length - 1;
+  const toggleBtn = moreCount > 0
+    ? `<button class="recent-toggle-btn" onclick="toggleRecentExpand()">
+        ${_recentExpanded
+          ? `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg> 접기`
+          : `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg> 더 보기 (${moreCount})`}
+       </button>` : '';
+  el.innerHTML = items + toggleBtn;
+}
+
+function toggleRecentExpand() {
+  _recentExpanded = !_recentExpanded;
+  renderRecentProjects();
 }
 
 function _projectBaseName(fileName) {
@@ -6453,9 +6469,13 @@ async function _showFolderBrowseModal(handle, options = {}) {
       return;
     }
     if (listEl) {
+      listEl.className = files.length > 3 ? 'folder-browse-scroll' : '';
       listEl.innerHTML = files.map((f, i) => {
         const name = _projectBaseName(f.name);
-        return `<div class="folder-browse-item" onclick="openBrowsedProject(${i})">${name}</div>`;
+        return `<div class="folder-browse-item" onclick="openBrowsedProject(${i})">
+          <span class="fbi-icon">📄</span>
+          <span class="fbi-name">${esc(name)}</span>
+        </div>`;
       }).join('');
     }
   } catch(e) {
@@ -6672,10 +6692,14 @@ async function showProjectsOverlay() {
     const listEl  = document.getElementById('folderBrowseList');
     if (titleEl) titleEl.innerHTML = _folderBrowseTitleHTML(bHandle);
     if (listEl) {
+      listEl.className = bFiles.length > 3 ? 'folder-browse-scroll' : '';
       listEl.innerHTML = bFiles.length
         ? bFiles.map((f, i) => {
             const name = _projectBaseName(f.name);
-            return `<div class="folder-browse-item" onclick="openBrowsedProject(${i})">${name}</div>`;
+            return `<div class="folder-browse-item" onclick="openBrowsedProject(${i})">
+              <span class="fbi-icon">📄</span>
+              <span class="fbi-name">${esc(name)}</span>
+            </div>`;
           }).join('')
         : '<div style="text-align:center;padding:12px;font-size:12px;opacity:.55">이 폴더에 프로젝트(.json)가 없습니다.</div>';
     }
