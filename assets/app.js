@@ -150,57 +150,93 @@ function setAuthLoading(on) {
 // Firestore 프로젝트 저장소
 // ══════════════════════════════════════════════════
 
-function _fsProjects() {
-  return db.collection('users').doc(auth.currentUser.uid).collection('projects');
-}
+// ══════════════════════════════════════════════════
+// Firestore 프로젝트 저장소 (top-level projects 컬렉션)
+// 구조: projects/{projectId}  owner, memberEmails 필드로 접근 제어
+// ══════════════════════════════════════════════════
 
 async function fsStoreSave(name, data) {
-  const col = _fsProjects();
+  const user = auth.currentUser;
+  const col  = db.collection('projects');
   if (_currentProjectId) {
-    await col.doc(_currentProjectId).set(
-      { name, data, updatedAt: firebase.firestore.FieldValue.serverTimestamp() },
-      { merge: true }
-    );
+    await col.doc(_currentProjectId).update({
+      name, data, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
   } else {
     const ref = await col.add({
       name, data,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      owner:      user.uid,
+      ownerEmail: user.email || '',
+      ownerName:  user.displayName || user.email || '',
+      memberEmails: [],
+      createdAt:  firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt:  firebase.firestore.FieldValue.serverTimestamp(),
     });
     _currentProjectId = ref.id;
   }
 }
 
 async function fsStoreListProjects() {
-  const snap = await _fsProjects().orderBy('updatedAt', 'desc').get();
-  return snap.docs.map(d => ({
-    id: d.id,
-    name: d.data().name,
+  const user = auth.currentUser;
+  const col  = db.collection('projects');
+  const [ownedSnap, sharedSnap] = await Promise.all([
+    col.where('owner', '==', user.uid).get(),
+    col.where('memberEmails', 'array-contains', user.email).get(),
+  ]);
+  const ownedSet = new Set(ownedSnap.docs.map(d => d.id));
+  const toItem = (d, isOwner) => ({
+    id: d.id, name: d.data().name,
     updatedAt: d.data().updatedAt?.toDate(),
-  }));
+    owner: d.data().owner, ownerEmail: d.data().ownerEmail || '',
+    ownerName: d.data().ownerName || '', memberEmails: d.data().memberEmails || [],
+    isOwner,
+  });
+  const owned  = ownedSnap.docs.map(d => toItem(d, true));
+  const shared = sharedSnap.docs.filter(d => !ownedSet.has(d.id)).map(d => toItem(d, false));
+  return [...owned, ...shared].sort((a, b) => (b.updatedAt?.getTime() || 0) - (a.updatedAt?.getTime() || 0));
 }
 
 async function fsStoreLoadProject(projectId) {
-  const doc = await _fsProjects().doc(projectId).get();
+  const doc = await db.collection('projects').doc(projectId).get();
   if (!doc.exists) throw new Error('프로젝트를 찾을 수 없습니다');
   return doc.data().data;
 }
 
+async function fsStoreGetProject(projectId) {
+  const doc = await db.collection('projects').doc(projectId).get();
+  if (!doc.exists) throw new Error('프로젝트를 찾을 수 없습니다');
+  return { id: doc.id, ...doc.data() };
+}
+
 async function fsStoreDeleteProject(projectId) {
-  const vSnap = await _fsProjects().doc(projectId).collection('versions').get();
+  const vSnap = await db.collection('projects').doc(projectId).collection('versions').get();
   const batch = db.batch();
   vSnap.docs.forEach(d => batch.delete(d.ref));
-  batch.delete(_fsProjects().doc(projectId));
+  batch.delete(db.collection('projects').doc(projectId));
   await batch.commit();
 }
 
 async function fsStoreRenameProject(projectId, newName) {
-  await _fsProjects().doc(projectId).update({ name: newName, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+  await db.collection('projects').doc(projectId).update({
+    name: newName, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+}
+
+async function fsStoreInviteMember(projectId, email) {
+  await db.collection('projects').doc(projectId).update({
+    memberEmails: firebase.firestore.FieldValue.arrayUnion(email.toLowerCase().trim())
+  });
+}
+
+async function fsStoreRemoveMember(projectId, email) {
+  await db.collection('projects').doc(projectId).update({
+    memberEmails: firebase.firestore.FieldValue.arrayRemove(email.toLowerCase().trim())
+  });
 }
 
 async function fsStoreSaveVersion(name, data) {
   if (!_currentProjectId) return;
-  await _fsProjects().doc(_currentProjectId).collection('versions').add({
+  await db.collection('projects').doc(_currentProjectId).collection('versions').add({
     name, data, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   });
   await fsStorePruneVersions();
@@ -208,20 +244,21 @@ async function fsStoreSaveVersion(name, data) {
 
 async function fsStoreListVersions() {
   if (!_currentProjectId) return [];
-  const snap = await _fsProjects().doc(_currentProjectId).collection('versions')
+  const snap = await db.collection('projects').doc(_currentProjectId).collection('versions')
     .orderBy('createdAt', 'desc').limit(20).get();
   return snap.docs.map(d => ({ id: d.id, name: d.data().name }));
 }
 
 async function fsStoreLoadVersion(versionId) {
-  const doc = await _fsProjects().doc(_currentProjectId).collection('versions').doc(versionId).get();
+  const doc = await db.collection('projects').doc(_currentProjectId)
+    .collection('versions').doc(versionId).get();
   if (!doc.exists) throw new Error('버전을 찾을 수 없습니다');
   return doc.data().data;
 }
 
 async function fsStorePruneVersions() {
   if (!_currentProjectId) return;
-  const snap = await _fsProjects().doc(_currentProjectId).collection('versions')
+  const snap = await db.collection('projects').doc(_currentProjectId).collection('versions')
     .orderBy('createdAt', 'desc').get();
   const toDelete = snap.docs.slice(VERSION_MAX);
   if (!toDelete.length) return;
@@ -230,27 +267,45 @@ async function fsStorePruneVersions() {
   await batch.commit();
 }
 
-// ── Firestore 프로젝트 목록 렌더링 ────────────────
+// ── 프로젝트 목록 렌더링 ─────────────────────────
 let _fsProjectList = [];
 
 function _renderFsProjectList(projects) {
+  _fsProjectList = projects;
   const listEl = document.getElementById('folderBrowseList');
   if (!listEl) return;
   listEl.className = projects.length > 3 ? 'folder-browse-scroll' : '';
-  const editSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
-  const trashSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
-  listEl.innerHTML = projects.length
-    ? projects.map((p, i) => `
-        <div class="folder-browse-item fbi-drive-item">
-          <span class="fbi-icon">📄</span>
+
+  const gearSvg  = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
+
+  if (!projects.length) {
+    listEl.innerHTML = '<div style="text-align:center;padding:12px;font-size:12px;opacity:.55">프로젝트가 없습니다</div>';
+    return;
+  }
+
+  listEl.innerHTML = projects.map((p, i) => {
+    const memberCount = p.memberEmails?.length || 0;
+    const sharedBadge = !p.isOwner
+      ? `<span class="fbi-shared-badge">공유됨</span>`
+      : memberCount > 0
+        ? `<span class="fbi-member-badge">👥 ${memberCount}</span>`
+        : '';
+    const ownerLabel = !p.isOwner
+      ? `<span class="fbi-owner-label">${esc(p.ownerName || p.ownerEmail || '공유')}</span>`
+      : '';
+    return `
+      <div class="folder-browse-item fbi-drive-item">
+        <span class="fbi-icon">📄</span>
+        <div class="fbi-main">
           <span class="fbi-name fbi-open-link" onclick="openFsProject(${i})">${esc(p.name)}</span>
-          <span class="fbi-actions">
-            <button class="fbi-action-btn" title="이름 변경" onclick="fsRenameProject(${i},event)">${editSvg}</button>
-            <button class="fbi-action-btn fbi-delete-btn" title="삭제" onclick="fsDeleteProject(${i},event)">${trashSvg}</button>
-          </span>
-          <span class="fbi-date">${_fmtModified(p.updatedAt?.getTime())}</span>
-        </div>`).join('')
-    : '<div style="text-align:center;padding:12px;font-size:12px;opacity:.55">프로젝트가 없습니다</div>';
+          <div class="fbi-meta">${ownerLabel}${sharedBadge}</div>
+        </div>
+        <span class="fbi-actions">
+          <button class="fbi-action-btn" title="프로젝트 관리" onclick="showProjectManage('${p.id}',event)">${gearSvg}</button>
+        </span>
+        <span class="fbi-date">${_fmtModified(p.updatedAt?.getTime())}</span>
+      </div>`;
+  }).join('');
 }
 
 async function openFsProject(idx) {
@@ -265,40 +320,182 @@ async function openFsProject(idx) {
     switchTab('editor', document.querySelector('.nav-btn'));
     await applyLoadedData(data);
     addRecentProject(p.name, p.id);
-  } catch(e) {
-    showToast('불러오기 오류: ' + e.message);
-  }
+  } catch(e) { showToast('불러오기 오류: ' + e.message); }
 }
 
-async function fsRenameProject(idx, e) {
+// ── 프로젝트 관리 모달 ──────────────────────────
+let _pmProjectId       = null;
+let _pmCurrentProj     = null;
+let _pmIsOwner         = false;
+let _pmPresenceData    = {};
+let _pmPresenceUnsub   = null;
+
+async function showProjectManage(projectId, e) {
   e?.stopPropagation();
-  const p = _fsProjectList[idx];
-  if (!p) return;
-  const newName = prompt('새 이름:', p.name);
-  if (!newName?.trim() || newName.trim() === p.name) return;
+  _pmProjectId = projectId;
+  document.getElementById('projectManageModal')?.classList.remove('hidden');
+  await _pmRefresh();
+  // presence 실시간 구독
+  if (_pmPresenceUnsub) _pmPresenceUnsub();
+  _pmPresenceUnsub = db.collection('presence').doc(projectId).onSnapshot(snap => {
+    _pmPresenceData = snap.exists ? snap.data() : {};
+    _pmRenderMembers();
+  });
+}
+
+function closeProjectManage() {
+  document.getElementById('projectManageModal')?.classList.add('hidden');
+  if (_pmPresenceUnsub) { _pmPresenceUnsub(); _pmPresenceUnsub = null; }
+  _pmProjectId = null; _pmCurrentProj = null;
+}
+
+async function _pmRefresh() {
+  if (!_pmProjectId) return;
   try {
-    await fsStoreRenameProject(p.id, newName.trim());
-    if (_currentProjectId === p.id) _currentFileName = newName.trim();
-    showToast('이름이 변경되었습니다');
+    const proj = await fsStoreGetProject(_pmProjectId);
+    const user = auth.currentUser;
+    _pmCurrentProj = proj;
+    _pmIsOwner = proj.owner === user.uid;
+
+    const nameEl = document.getElementById('pmProjectName');
+    if (nameEl) nameEl.textContent = proj.name;
+    const ownerEl = document.getElementById('pmOwnerRow');
+    if (ownerEl) ownerEl.innerHTML = `
+      <span class="pm-member-avatar">👑</span>
+      <div class="pm-member-info">
+        <div class="pm-member-name">${esc(proj.ownerName || proj.ownerEmail || '소유자')}${proj.owner === user.uid ? ' <span class="pm-badge-me">나</span>' : ''}</div>
+        <div class="pm-member-email">${esc(proj.ownerEmail || '')}</div>
+      </div>
+      <span class="pm-online-dot" id="pmOwnerDot"></span>`;
+
+    document.getElementById('pmInviteRow').style.display  = _pmIsOwner ? '' : 'none';
+    document.getElementById('pmDangerZone').style.display = _pmIsOwner ? '' : 'none';
+    document.getElementById('pmLeaveZone').style.display  = !_pmIsOwner ? '' : 'none';
+    document.getElementById('pmRenameRow').style.display  = _pmIsOwner ? '' : 'none';
+    const ri = document.getElementById('pmRenameInput');
+    if (ri) ri.value = proj.name;
+    _pmRenderMembers();
+  } catch(e) { showToast('불러오기 오류: ' + e.message); }
+}
+
+function _pmRenderMembers() {
+  const proj = _pmCurrentProj;
+  if (!proj) return;
+  const user  = auth.currentUser;
+  const now   = Date.now();
+  const emails = proj.memberEmails || [];
+
+  // 소유자 presence 표시
+  const ownerDot = document.getElementById('pmOwnerDot');
+  if (ownerDot) {
+    const ownerPresence = _pmPresenceData[proj.owner];
+    const ownerOnline = ownerPresence && (now - ownerPresence.updatedAt < 120000);
+    ownerDot.className = 'pm-online-dot ' + (ownerOnline ? 'online' : '');
+  }
+
+  const countEl = document.getElementById('pmMemberCount');
+  if (countEl) countEl.textContent = emails.length ? `(${emails.length}명)` : '';
+
+  const listEl = document.getElementById('pmMemberList');
+  if (!listEl) return;
+  if (!emails.length) {
+    listEl.innerHTML = '<div class="pm-empty">아직 초대된 팀원이 없습니다</div>';
+    return;
+  }
+
+  // presence에서 email 매핑
+  const presenceByEmail = {};
+  Object.values(_pmPresenceData).forEach(v => {
+    if (v.email) presenceByEmail[v.email.toLowerCase()] = v;
+  });
+
+  listEl.innerHTML = emails.map(email => {
+    const pData   = presenceByEmail[email.toLowerCase()];
+    const isOnline= pData && (now - pData.updatedAt < 120000);
+    const name    = pData?.name || email.split('@')[0];
+    const emoji   = pData?.emoji || '👤';
+    const isMe    = email.toLowerCase() === (user.email || '').toLowerCase();
+    const removeBtn = _pmIsOwner && !isMe
+      ? `<button class="pm-remove-btn" onclick="pmRemoveMember('${esc(email)}')">제거</button>`
+      : '';
+    return `<div class="pm-member-row">
+      <span class="pm-member-avatar">${emoji}</span>
+      <div class="pm-member-info">
+        <div class="pm-member-name">${esc(name)}${isMe ? ' <span class="pm-badge-me">나</span>' : ''}</div>
+        <div class="pm-member-email">${esc(email)}</div>
+      </div>
+      <span class="pm-online-dot ${isOnline ? 'online' : ''}"></span>
+      ${removeBtn}
+    </div>`;
+  }).join('');
+}
+
+async function pmInviteMember() {
+  const input = document.getElementById('pmInviteEmail');
+  const email = (input?.value || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) { showToast('올바른 이메일을 입력하세요'); return; }
+  if (email === (auth.currentUser.email || '').toLowerCase()) { showToast('본인은 이미 소유자입니다'); return; }
+  if (_pmCurrentProj?.memberEmails?.includes(email)) { showToast('이미 초대된 팀원입니다'); return; }
+  try {
+    await fsStoreInviteMember(_pmProjectId, email);
+    // local 캐시 즉시 반영
+    if (_pmCurrentProj) _pmCurrentProj.memberEmails = [...(_pmCurrentProj.memberEmails || []), email];
+    if (input) input.value = '';
+    showToast(`${email} 초대 완료`);
+    _pmRenderMembers();
+    // home 목록도 갱신 (백그라운드)
+    showProjectsOverlay().catch(() => {});
+  } catch(e) { showToast('초대 실패: ' + e.message); }
+}
+
+async function pmRemoveMember(email) {
+  if (!confirm(`"${email}" 팀원을 제거하시겠습니까?`)) return;
+  try {
+    await fsStoreRemoveMember(_pmProjectId, email);
+    if (_pmCurrentProj) _pmCurrentProj.memberEmails = (_pmCurrentProj.memberEmails || []).filter(e => e !== email);
+    showToast('팀원 제거 완료');
+    _pmRenderMembers();
+  } catch(e) { showToast('제거 실패: ' + e.message); }
+}
+
+async function pmRenameProject() {
+  if (!_pmCurrentProj) return;
+  const input = document.getElementById('pmRenameInput');
+  const newName = (input?.value || '').trim();
+  if (!newName || newName === _pmCurrentProj.name) return;
+  try {
+    await fsStoreRenameProject(_pmProjectId, newName);
+    _pmCurrentProj.name = newName;
+    if (_currentProjectId === _pmProjectId) _currentFileName = newName;
+    const nameEl = document.getElementById('pmProjectName');
+    if (nameEl) nameEl.textContent = newName;
+    showToast('이름 변경 완료');
+    showProjectsOverlay().catch(() => {});
+  } catch(e) { showToast('이름 변경 오류: ' + e.message); }
+}
+
+async function pmLeaveProject() {
+  if (!_pmCurrentProj) return;
+  if (!confirm(`"${_pmCurrentProj.name}" 프로젝트에서 나가시겠습니까?`)) return;
+  try {
+    await fsStoreRemoveMember(_pmProjectId, auth.currentUser.email);
+    closeProjectManage();
+    if (_currentProjectId === _pmProjectId) { _currentProjectId = null; _currentFileName = null; _dataLoaded = false; }
+    showToast('프로젝트에서 나갔습니다');
     showProjectsOverlay();
-  } catch(err) {
-    showToast('이름 변경 오류: ' + err.message);
-  }
+  } catch(e) { showToast('오류: ' + e.message); }
 }
 
-async function fsDeleteProject(idx, e) {
-  e?.stopPropagation();
-  const p = _fsProjectList[idx];
-  if (!p) return;
-  if (!confirm(`"${p.name}" 을(를) 삭제할까요?\n버전 히스토리도 모두 삭제됩니다.`)) return;
+async function pmDeleteProject() {
+  if (!_pmCurrentProj) return;
+  if (!confirm(`"${_pmCurrentProj.name}" 프로젝트를 삭제하시겠습니까?\n버전 히스토리도 모두 삭제됩니다.`)) return;
   try {
-    await fsStoreDeleteProject(p.id);
-    if (_currentProjectId === p.id) { _currentProjectId = null; _currentFileName = null; }
+    await fsStoreDeleteProject(_pmProjectId);
+    if (_currentProjectId === _pmProjectId) { _currentProjectId = null; _currentFileName = null; _dataLoaded = false; }
+    closeProjectManage();
     showToast('삭제 완료');
     showProjectsOverlay();
-  } catch(err) {
-    showToast('삭제 오류: ' + err.message);
-  }
+  } catch(e) { showToast('삭제 오류: ' + e.message); }
 }
 
 // ══════════════════════════════════════════════════
@@ -6390,7 +6587,7 @@ async function presenceJoin() {
   const docRef = db.collection('presence').doc(_presenceFileKey);
 
   // 내 세션 등록
-  await docRef.set({ [user.uid]: { name, emoji, updatedAt: Date.now() } }, { merge: true });
+  await docRef.set({ [user.uid]: { name, emoji, email: user.email || '', updatedAt: Date.now() } }, { merge: true });
 
   // 실시간 리스너
   _presenceListener = docRef.onSnapshot(snap => {
@@ -6412,7 +6609,7 @@ async function presenceJoin() {
     try {
       const currentEmoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
       const currentName  = getProfileName();
-      await docRef.set({ [user.uid]: { name: currentName, emoji: currentEmoji, updatedAt: Date.now() } }, { merge: true });
+      await docRef.set({ [user.uid]: { name: currentName, emoji: currentEmoji, email: user.email || '', updatedAt: Date.now() } }, { merge: true });
     } catch(e) {}
   }, 30000);
 
@@ -6888,7 +7085,7 @@ function _syncNameToPresence(name) {
   if (!user || !_presenceFileKey) return;
   const emoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
   db.collection('presence').doc(_presenceFileKey)
-    .set({ [user.uid]: { name, emoji, updatedAt: Date.now() } }, { merge: true })
+    .set({ [user.uid]: { name, emoji, email: user.email || '', updatedAt: Date.now() } }, { merge: true })
     .catch(() => {});
 }
 const PROFILE_EMOJIS = [
@@ -6954,7 +7151,7 @@ function selectProfileEmoji(emoji) {
   if (user && _presenceFileKey) {
     const name = getProfileName();
     db.collection('presence').doc(_presenceFileKey)
-      .set({ [user.uid]: { name, emoji, updatedAt: Date.now() } }, { merge: true })
+      .set({ [user.uid]: { name, emoji, email: user.email || '', updatedAt: Date.now() } }, { merge: true })
       .catch(() => {});
   }
 }

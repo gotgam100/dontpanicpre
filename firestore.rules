@@ -7,12 +7,24 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 
-    // 프로젝트: 본인만 읽기/쓰기
-    match /users/{uid}/projects/{projectId} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+    // ── 프로젝트 (top-level, 공유 지원) ──────────────────
+    // 소유자 또는 memberEmails에 포함된 사용자만 접근
+    match /projects/{projectId} {
+      allow read, update: if request.auth != null && (
+        resource.data.owner == request.auth.uid ||
+        request.auth.token.email in resource.data.memberEmails
+      );
+      allow create: if request.auth != null &&
+        request.resource.data.owner == request.auth.uid;
+      allow delete: if request.auth != null &&
+        resource.data.owner == request.auth.uid;
     }
-    match /users/{uid}/projects/{projectId}/versions/{versionId} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+
+    match /projects/{projectId}/versions/{versionId} {
+      allow read, write: if request.auth != null && (
+        get(/databases/$(database)/documents/projects/$(projectId)).data.owner == request.auth.uid ||
+        request.auth.token.email in get(/databases/$(database)/documents/projects/$(projectId)).data.memberEmails
+      );
     }
 
     // 접속자 표시(Presence): 로그인한 사용자 누구나 읽기/쓰기

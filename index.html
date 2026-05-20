@@ -60,6 +60,50 @@
   </div>
 </div>
 
+<!-- ══════════ 프로젝트 관리 모달 ══════════ -->
+<div id="projectManageModal" class="hidden pm-backdrop" onclick="if(event.target===this)closeProjectManage()">
+  <div class="pm-box">
+    <div class="pm-header">
+      <div class="pm-title" id="pmProjectName">프로젝트 관리</div>
+      <button class="pm-close-btn" onclick="closeProjectManage()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- 이름 변경 (소유자만 표시됨) -->
+    <div id="pmRenameRow" class="pm-rename-row">
+      <input id="pmRenameInput" class="pm-rename-input" type="text" placeholder="프로젝트 이름">
+      <button class="pm-rename-btn" onclick="pmRenameProject()">변경</button>
+    </div>
+
+    <!-- 소유자 -->
+    <div class="pm-section-label">소유자</div>
+    <div id="pmOwnerRow" class="pm-member-row"></div>
+
+    <!-- 팀원 목록 -->
+    <div class="pm-section-label">팀원 <span id="pmMemberCount" style="opacity:.5;font-weight:400"></span></div>
+    <div id="pmMemberList" class="pm-member-list"></div>
+
+    <!-- 초대 (소유자만) -->
+    <div id="pmInviteRow" class="pm-invite-row" style="display:none">
+      <input id="pmInviteEmail" class="pm-invite-input" type="email" placeholder="팀원 이메일 입력"
+             onkeydown="if(event.key==='Enter')pmInviteMember()">
+      <button class="pm-invite-btn" onclick="pmInviteMember()">초대</button>
+    </div>
+
+    <!-- 위험 영역 -->
+    <div id="pmDangerZone" class="pm-danger-zone" style="display:none">
+      <button class="pm-delete-btn" onclick="pmDeleteProject()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        프로젝트 삭제
+      </button>
+    </div>
+    <div id="pmLeaveZone" class="pm-danger-zone" style="display:none">
+      <button class="pm-leave-btn" onclick="pmLeaveProject()">프로젝트 나가기</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════ 새 프로젝트 모달 ══════════ -->
 <div id="newProjectModal" class="hidden npm-backdrop" onclick="if(event.target===this)closeNewProjectModal()">
   <div class="npm-box">

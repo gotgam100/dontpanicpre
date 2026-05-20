@@ -2009,15 +2009,126 @@ kbd {
 }
 .npm-confirm:hover { opacity: .88; }
 
-/* 프로젝트 목록 저장 경로 */
-/* 프로젝트 목록 오버레이 */
-/* ── 저장소 선택 ── */
-#storageSetupOverlay {
-  position: fixed; inset: 0; background: var(--bg);
+/* ── 프로젝트 관리 모달 ── */
+.pm-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,.6);
   display: flex; align-items: center; justify-content: center;
-  z-index: 2100; padding: 24px;
+  z-index: 3100; padding: 20px;
 }
-.projects-action-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+.pm-backdrop.hidden { display: none; }
+.pm-box {
+  background: var(--bg-card, #1a1a2e); border: 1px solid var(--border);
+  border-radius: 16px; padding: 24px; width: 360px; max-width: 96vw;
+  display: flex; flex-direction: column; gap: 14px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.5);
+}
+.pm-header { display: flex; align-items: center; justify-content: space-between; }
+.pm-title { font-size: 16px; font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-close-btn {
+  width: 28px; height: 28px; border: none; background: transparent;
+  color: var(--text-dim); cursor: pointer; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.pm-close-btn:hover { background: var(--surface2); color: var(--text); }
+.pm-rename-row { display: flex; gap: 8px; }
+.pm-rename-input {
+  flex: 1; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; font-size: 13px; color: var(--text);
+}
+.pm-rename-input:focus { outline: none; border-color: var(--accent); }
+.pm-rename-btn {
+  padding: 8px 14px; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; font-size: 12px; color: var(--text-dim); cursor: pointer; white-space: nowrap;
+}
+.pm-rename-btn:hover { border-color: var(--accent); color: var(--accent); }
+.pm-section-label {
+  font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-dim); opacity: .7;
+}
+.pm-member-list { display: flex; flex-direction: column; gap: 2px; }
+.pm-member-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid var(--border);
+}
+.pm-member-row:last-child { border-bottom: none; }
+.pm-member-avatar { font-size: 20px; flex-shrink: 0; width: 28px; text-align: center; }
+.pm-member-info { flex: 1; min-width: 0; }
+.pm-member-name {
+  font-size: 13px; font-weight: 500; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pm-member-email { font-size: 11px; color: var(--text-dim); opacity: .7; margin-top: 1px; }
+.pm-badge-me {
+  display: inline-block; font-size: 10px; font-weight: 600;
+  background: rgba(251,191,36,.18); color: #fbbf24;
+  border-radius: 4px; padding: 1px 5px; vertical-align: middle; margin-left: 4px;
+}
+.pm-online-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--border); flex-shrink: 0;
+}
+.pm-online-dot.online { background: #4ade80; box-shadow: 0 0 6px #4ade8088; }
+.pm-remove-btn {
+  font-size: 11px; color: var(--text-dim); background: transparent;
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 3px 8px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+}
+.pm-remove-btn:hover { border-color: #f87171; color: #f87171; }
+.pm-empty { font-size: 12px; color: var(--text-dim); opacity: .6; padding: 8px 0; text-align: center; }
+.pm-invite-row { display: flex; gap: 8px; }
+.pm-invite-input {
+  flex: 1; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 9px 10px; font-size: 13px; color: var(--text);
+}
+.pm-invite-input:focus { outline: none; border-color: var(--accent); }
+.pm-invite-btn {
+  padding: 9px 16px; background: var(--accent); border: none;
+  border-radius: 8px; font-size: 13px; font-weight: 600; color: #fff; cursor: pointer; white-space: nowrap;
+}
+.pm-invite-btn:hover { opacity: .88; }
+.pm-danger-zone { border-top: 1px solid var(--border); padding-top: 12px; }
+.pm-delete-btn {
+  display: flex; align-items: center; gap: 6px;
+  background: transparent; border: 1px solid #f87171; border-radius: 8px;
+  padding: 8px 14px; font-size: 12px; color: #f87171; cursor: pointer; width: 100%; justify-content: center;
+}
+.pm-delete-btn:hover { background: rgba(248,113,113,.1); }
+.pm-leave-btn {
+  display: block; background: transparent; border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 14px; font-size: 12px; color: var(--text-dim);
+  cursor: pointer; width: 100%; text-align: center;
+}
+.pm-leave-btn:hover { border-color: #f87171; color: #f87171; }
+
+/* fbi 목록 - 공유 관련 배지 */
+.fbi-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.fbi-meta { display: flex; align-items: center; gap: 5px; }
+.fbi-shared-badge {
+  font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px;
+  background: rgba(96,165,250,.15); color: #60a5fa;
+}
+.fbi-member-badge {
+  font-size: 10px; color: var(--text-dim); opacity: .7;
+}
+.fbi-owner-label { font-size: 10px; color: var(--text-dim); opacity: .6; }
+
+/* ── 프로젝트 목록 오버레이 ── */
+#projectsOverlay {
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  z-index: 2000; overflow-y: auto;
+}
+#projectsOverlay.hidden { display: none; }
+.projects-title-area { text-align: center; padding: 40px 0 18px; }
+.projects-title { font-size: 24px; font-weight: 800; letter-spacing: -.5px; }
+.projects-box {
+  width: 320px; max-width: 96vw;
+  display: flex; flex-direction: column; gap: 0; padding-bottom: 32px;
+}
+.projects-username {
+  font-size: 13px; color: var(--text-dim); text-align: center; padding: 0 0 22px;
+}
+.projects-action-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
 .projects-collab-hint {
   display: flex; align-items: flex-start; gap: 8px;
   background: var(--surface2); border: 1px solid var(--border);
