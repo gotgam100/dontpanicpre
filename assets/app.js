@@ -6963,25 +6963,36 @@ async function presenceLeave() {
   chatLeave();
 }
 
+const PRESENCE_MAX_CHIPS = 8;
+
 function renderPresenceChips(users) {
   if (users !== _lastPresenceUsers && users.length) _lastPresenceUsers = users; // 캐시 갱신
   const wrap = document.getElementById('presenceChips');
   if (!wrap) return;
   const list = users.length ? users : _lastPresenceUsers;
   if (!list.length) { wrap.innerHTML = ''; return; }
-  wrap.innerHTML =
-    `<span class="presence-label">현재 접속자</span>` +
-    list.map(u => {
-      if (u.isMe) {
-        return `<div class="presence-chip presence-chip-me" title="${esc(u.name)}">${u.emoji}</div>`;
-      }
-      // 타인: DM 안읽음 뱃지 + 클릭 시 DM 열기
-      const unread = _dmUnreadCounts[u.uid] || 0;
-      const badge  = unread > 0
-        ? `<span class="dm-unread-badge">${unread > 9 ? '9+' : unread}</span>` : '';
-      return `<div class="presence-chip presence-chip-other" title="${esc(u.name)}에게 메시지 보내기"
-        onclick="openDM('${esc(u.uid)}','${esc(u.name)}','${esc(u.emoji)}')">${u.emoji}${badge}</div>`;
-    }).join('');
+
+  // 내 칩은 항상 맨 앞에
+  const sorted  = [...list.filter(u => u.isMe), ...list.filter(u => !u.isMe)];
+  const visible  = sorted.slice(0, PRESENCE_MAX_CHIPS);
+  const overflow = sorted.slice(PRESENCE_MAX_CHIPS);
+
+  const chips = visible.map(u => {
+    if (u.isMe) {
+      return `<div class="presence-chip presence-chip-me" title="${esc(u.name)}">${u.emoji}</div>`;
+    }
+    const unread = _dmUnreadCounts[u.uid] || 0;
+    const badge  = unread > 0
+      ? `<span class="dm-unread-badge">${unread > 9 ? '9+' : unread}</span>` : '';
+    return `<div class="presence-chip presence-chip-other" title="${esc(u.name)}에게 메시지 보내기"
+      onclick="openDM('${esc(u.uid)}','${esc(u.name)}','${esc(u.emoji)}')">${u.emoji}${badge}</div>`;
+  }).join('');
+
+  const moreChip = overflow.length > 0
+    ? `<div class="presence-chip presence-chip-more" title="${overflow.map(u => u.name).join(', ')}">+${overflow.length}</div>`
+    : '';
+
+  wrap.innerHTML = `<span class="presence-label">현재 접속자</span>` + chips + moreChip;
   // 타인 접속 or DM 안읽음 있으면 채팅 버튼 표시
   const hasOthers  = list.some(u => !u.isMe);
   const hasDmUnread = Object.values(_dmUnreadCounts).some(n => n > 0);

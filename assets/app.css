@@ -1497,6 +1497,13 @@ kbd {
   transition: opacity .15s, transform .15s;
 }
 .presence-chip-other:hover { opacity: 1; transform: scale(1.18); }
+.presence-chip-more {
+  font-size: 10px; font-weight: 700; color: var(--text-dim);
+  padding: 0 5px; min-width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface2); border-radius: 11px;
+  cursor: default; opacity: .7; letter-spacing: -.3px;
+}
 /* DM 안읽음 뱃지 */
 .dm-unread-badge {
   position: absolute; top: -4px; right: -5px;
