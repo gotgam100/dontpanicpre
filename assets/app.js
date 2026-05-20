@@ -7116,13 +7116,12 @@ function openDM(partnerUid, partnerName, partnerEmoji) {
   _dmPartner = { uid: partnerUid, name: partnerName, emoji: partnerEmoji };
   _dmMode    = true;
 
-  // 헤더 전환
-  document.getElementById('chatGroupHeader')?.classList.add('hidden');
+  // 헤더 타이틀 교체 (← 버튼 + 이모티콘 + 이름)
   document.getElementById('chatGroupDesc')?.classList.add('hidden');
-  const dmHeader = document.getElementById('chatDmHeader');
-  if (dmHeader) dmHeader.classList.remove('hidden');
-  const partnerEl = document.getElementById('chatDmPartnerName');
-  if (partnerEl) partnerEl.textContent = `${partnerEmoji} ${partnerName}`;
+  const titleEl = document.getElementById('chatPanelTitle');
+  if (titleEl) titleEl.innerHTML =
+    `<button class="chat-back-btn" onclick="closeDM()" title="공유 채팅방으로 돌아가기">←</button>
+     <span class="chat-dm-title">${partnerEmoji} ${esc(partnerName)}</span>`;
 
   // 입력창 placeholder 변경
   const input = document.getElementById('chatInput');
@@ -7156,10 +7155,12 @@ function closeDM() {
   _dmPartner = null;
   _dmKey     = null;
 
-  // 헤더 복원
-  document.getElementById('chatDmHeader')?.classList.add('hidden');
-  document.getElementById('chatGroupHeader')?.classList.remove('hidden');
+  // 헤더 타이틀 복원
   document.getElementById('chatGroupDesc')?.classList.remove('hidden');
+  const titleEl = document.getElementById('chatPanelTitle');
+  if (titleEl) titleEl.innerHTML =
+    `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+     공유 채팅방`;
 
   // 입력창 placeholder 복원
   const input = document.getElementById('chatInput');
