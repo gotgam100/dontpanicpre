@@ -6308,9 +6308,9 @@ function _alertFolderPickerError(e) {
 function _showFolderPickerGuide(onConfirm) {
   const title = '구글 드라이브 협업 폴더 만들기';
 
-  const steps = `<li>내 컴퓨터에 <strong>Google Drive 데스크톱 앱</strong>이 설치되어 있어야 합니다.</li>
-     <li>파인더에서 <strong>내 컴퓨터 › Google Drive › 프로젝트용 새 폴더</strong>를 미리 만들어주세요.</li>
-     <li>폴더 선택 창에서 만든 새 폴더를 선택 후 <strong>열기</strong> 클릭.</li>`;
+  const steps = `<li>내 컴퓨터에 <span style="color:#fbbf24;font-weight:700">Google Drive 데스크톱 앱</span>이 설치되어 있어야 합니다.</li>
+     <li>파인더에서 <span style="color:#fbbf24;font-weight:700">내 컴퓨터 - Google Drive - 프로젝트용 새 폴더</span>를 미리 만들어주세요.</li>
+     <li>폴더 선택 창에서 만들어진 새 폴더를 선택 후 <strong>열기</strong> 클릭.</li>`;
 
   const note = `<p style="font-size:12px;opacity:.65;margin:0 0 20px;line-height:1.6">구글 드라이브 폴더를 공유하거나 프로젝트 파일을 공유하여<br>팀원과 함께 작업할 수 있습니다.</p>`;
 
