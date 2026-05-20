@@ -5952,7 +5952,19 @@ function restoreProject(input) {
 // ══════════════════════════════════════════════════
 let _saveTimer = null;
 let _dataLoaded = false; // load() 완료 전에는 절대 저장하지 않음
-let _saveCount  = 0;     // 저장 횟수 카운터 (버전 스냅샷 트리거용)
+
+// 저장 횟수 카운터 — 프로젝트별로 localStorage에 유지 (세션 간 누적)
+function _getSaveCountKey() {
+  return `dpre-savecount-${_currentFileName || 'default'}`;
+}
+function _getSaveCount() {
+  return parseInt(localStorage.getItem(_getSaveCountKey()) || '0', 10);
+}
+function _incSaveCount() {
+  const v = _getSaveCount() + 1;
+  localStorage.setItem(_getSaveCountKey(), String(v));
+  return v;
+}
 
 // 타이핑할 때마다 즉시 저장하면 Firestore 쓰기 횟수가 많아지므로
 // 마지막 입력 후 1.5초 뒤에 한 번만 저장합니다
@@ -6002,8 +6014,8 @@ async function doSave() {
     savedAt:     new Date().toISOString(),
   };
   await localSaveProject(data);
-  _saveCount++;
-  if (_saveCount % 10 === 0) saveVersionSnapshot(data).catch(e => console.warn('버전 저장 오류:', e));
+  const cnt = _incSaveCount();
+  if (cnt % 10 === 0) saveVersionSnapshot(data).catch(e => console.warn('버전 저장 오류:', e));
 }
 
 async function load() {
@@ -6798,6 +6810,34 @@ async function applyLoadedData(d) {
   refreshTypeUI();
   checkEditorEmpty();
   presenceJoin().catch(() => {});
+
+  // 오늘 날짜 스냅샷이 없으면 프로젝트 열 때 즉시 1회 백업
+  setTimeout(async () => {
+    if (!_folderHandle || !_currentFileName) return;
+    try {
+      const today = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const todayPrefix = `${today.getFullYear()}${pad(today.getMonth()+1)}${pad(today.getDate())}`;
+      const list = await loadVersionList();
+      const hasToday = list.some(n => n.startsWith(todayPrefix));
+      if (!hasToday) {
+        const data = {
+          html: ed().innerHTML, sched, schedDays,
+          project: document.getElementById('projectName').value,
+          author: document.getElementById('authorName').value,
+          date: document.getElementById('projectDate').value,
+          adPhone: projectAdPhone, pdPhone: projectPdPhone,
+          charNotes, charInfo, manualChars: manualCharsByScene,
+          sceneNotes, sceneExtras, csLabels, globalChars, charOrder, hiddenChars,
+          callSheets, lastCSNum: csGet()?.csNum ?? null,
+          locationInfo, locationOrder, propList, costumeList,
+          pageNumberStyle, month: calMonth.getTime(),
+          savedAt: new Date().toISOString(),
+        };
+        await saveVersionSnapshot(data);
+      }
+    } catch(e) { console.warn('초기 버전 스냅샷 오류:', e); }
+  }, 2000);
 }
 
 // ══════════════════════════════════════════════════
