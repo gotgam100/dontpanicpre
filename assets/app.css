@@ -1593,6 +1593,40 @@ kbd {
 }
 .chat-send-btn:hover { opacity: .85; }
 
+/* ══ 공유 채팅방 설명 박스 ══ */
+.chat-group-desc {
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--surface, #141520);
+}
+.chat-group-desc p {
+  margin: 0 0 4px; font-size: 11px; color: var(--text-dim); line-height: 1.55;
+}
+.chat-group-desc p:last-child { margin-bottom: 0; }
+.chat-group-desc-sub {
+  opacity: .6;
+}
+
+/* ══ DM 헤더 ══ */
+.chat-dm-header {
+  background: var(--surface2);
+}
+.chat-back-btn {
+  background: none; border: none; color: var(--accent); font-size: 12px;
+  cursor: pointer; padding: 2px 6px; border-radius: 5px;
+  transition: background .1s, opacity .1s; white-space: nowrap; flex-shrink: 0;
+}
+.chat-back-btn:hover { background: var(--surface); opacity: .8; }
+.chat-dm-partner {
+  font-size: 14px; text-align: center; flex: 1;
+}
+/* 다른 유저 아바타 클릭 가능 */
+.chat-msg-avatar-clickable {
+  cursor: pointer; transition: transform .15s;
+}
+.chat-msg-avatar-clickable:hover { transform: scale(1.2); }
+
 /* ══ 토스트 ══ */
 #dpToast {
   position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%) translateY(16px);

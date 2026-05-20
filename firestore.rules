@@ -16,5 +16,11 @@ service cloud.firestore {
     match /chats/{fileKey}/messages/{msgId} {
       allow read, write: if request.auth != null;
     }
+
+    // 1:1 DM: 대화 당사자(dmKey에 uid 포함)만 읽기/쓰기
+    match /dms/{dmKey}/messages/{msgId} {
+      allow read, write: if request.auth != null
+        && dmKey.matches('.*' + request.auth.uid + '.*');
+    }
   }
 }

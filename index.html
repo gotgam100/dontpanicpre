@@ -281,13 +281,30 @@
 
 <!-- ══════════ 채팅 패널 ══════════ -->
 <div id="chatPanel" class="chat-panel hidden">
-  <div class="chat-panel-header">
+
+  <!-- 공유 채팅방 헤더 (기본 모드) -->
+  <div id="chatGroupHeader" class="chat-panel-header">
     <span class="chat-panel-title">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-      채팅
+      공유 채팅방
     </span>
     <button class="chat-panel-close" onclick="toggleChatPanel()">✕</button>
   </div>
+  <div id="chatGroupDesc" class="chat-group-desc">
+    <p>공유 채팅방은 참가자 모두의 채팅기록을 확인할 수 있습니다. 개인 대화의 경우 이모티콘을 눌러 메시지를 보내세요.</p>
+    <p class="chat-group-desc-sub">채팅 기록은 30일 이후 자동 삭제됩니다.</p>
+  </div>
+
+  <!-- DM 헤더 (DM 모드) -->
+  <div id="chatDmHeader" class="chat-panel-header chat-dm-header hidden">
+    <button class="chat-back-btn" onclick="closeDM()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      공유 채팅방
+    </button>
+    <span id="chatDmPartnerName" class="chat-dm-partner"></span>
+    <button class="chat-panel-close" onclick="toggleChatPanel()">✕</button>
+  </div>
+
   <div id="chatMessages" class="chat-messages"></div>
   <div class="chat-input-row">
     <input id="chatInput" class="chat-input" type="text" placeholder="메시지 입력…"

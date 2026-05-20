@@ -6941,6 +6941,12 @@ let _chatFileKey  = null;
 let _chatUnread   = 0;
 let _chatOpen     = false;
 
+// DM 상태
+let _dmMode     = false;   // true = DM 패널 표시 중
+let _dmPartner  = null;    // { uid, name, emoji }
+let _dmKey      = null;    // sorted uid join
+let _dmListener = null;
+
 function _chatLastReadKey(fileKey) { return `dpre-chat-read-${fileKey}`; }
 function _chatGetLastRead(fileKey) { return parseInt(localStorage.getItem(_chatLastReadKey(fileKey)) || '0', 10); }
 function _chatSetLastRead(fileKey) { localStorage.setItem(_chatLastReadKey(fileKey), String(Date.now())); }
@@ -6967,6 +6973,10 @@ function chatLeave() {
   _chatFileKey = null;
   _chatUnread  = 0;
   _chatOpen    = false;
+  _closeDmListener();
+  _dmMode    = false;
+  _dmPartner = null;
+  _dmKey     = null;
   const panel = document.getElementById('chatPanel');
   if (panel) panel.classList.add('hidden');
   const btn = document.getElementById('chatToggleBtn');
@@ -6974,7 +6984,12 @@ function chatLeave() {
   updateChatBadge([]);
 }
 
+function _closeDmListener() {
+  if (_dmListener) { _dmListener(); _dmListener = null; }
+}
+
 async function chatSend() {
+  if (_dmMode) { await dmSend(); return; }
   const input = document.getElementById('chatInput');
   const text  = (input?.value || '').trim();
   if (!text || !_chatFileKey) return;
@@ -6994,15 +7009,18 @@ function toggleChatPanel() {
   const panel = document.getElementById('chatPanel');
   const btn   = document.getElementById('chatToggleBtn');
   if (!panel) return;
-  _chatOpen = panel.classList.toggle('hidden') ? false : true;
-  // hidden이 제거되면 open 상태
-  _chatOpen = !panel.classList.contains('hidden');
+  const willOpen = panel.classList.contains('hidden');
+  panel.classList.toggle('hidden');
+  _chatOpen = willOpen;
   btn?.classList.toggle('active', _chatOpen);
-  if (_chatOpen && _chatFileKey) {
+  if (!_chatOpen && _dmMode) {
+    // 패널 닫을 때 DM 모드 종료
+    closeDM();
+  }
+  if (_chatOpen && _chatFileKey && !_dmMode) {
     _chatSetLastRead(_chatFileKey);
     _chatUnread = 0;
     updateChatBadge(null);
-    // 스크롤 맨 아래
     setTimeout(() => {
       const msgs = document.getElementById('chatMessages');
       if (msgs) msgs.scrollTop = msgs.scrollHeight;
@@ -7029,9 +7047,12 @@ function renderChatMessages(msgs) {
     let divider = '';
     if (day !== lastDay) { lastDay = day; divider = `<div class="chat-day-divider"><span>${day}</span></div>`; }
     const nameRow = !isMe ? `<div class="chat-msg-name">${esc(m.name)}</div>` : '';
+    const avatarExtra = !isMe
+      ? ` chat-msg-avatar-clickable" title="${esc(m.name)}님에게 DM" onclick="openDM('${esc(m.uid)}','${esc(m.name)}','${esc(m.emoji || '😊')}')`
+      : ``;
     return `${divider}
     <div class="chat-msg${isMe ? ' chat-msg-me' : ''}">
-      <div class="chat-msg-avatar">${m.emoji || '😊'}</div>
+      <div class="chat-msg-avatar${avatarExtra}">${m.emoji || '😊'}</div>
       <div class="chat-msg-body">
         ${nameRow}
         <div class="chat-msg-bubble">${esc(m.text)}</div>
@@ -7072,6 +7093,140 @@ async function pruneOldChatMessages(fileKey) {
   const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000; // 30일
   try {
     const snap = await db.collection('chats').doc(fileKey).collection('messages').get();
+    if (snap.empty) return;
+    const batch = db.batch();
+    let count = 0;
+    snap.docs.forEach(doc => {
+      if (doc.data().sentAt < cutoff) { batch.delete(doc.ref); count++; }
+    });
+    if (count > 0) await batch.commit();
+  } catch(e) {}
+}
+
+// ── 1:1 DM ───────────────────────────────────────
+
+function openDM(partnerUid, partnerName, partnerEmoji) {
+  const user = auth.currentUser;
+  if (!user || partnerUid === user.uid) return;
+
+  // DM key: 두 uid 알파벳 정렬 후 결합 (양쪽에서 동일한 키)
+  _dmKey     = [user.uid, partnerUid].sort().join('-');
+  _dmPartner = { uid: partnerUid, name: partnerName, emoji: partnerEmoji };
+  _dmMode    = true;
+
+  // 헤더 전환
+  document.getElementById('chatGroupHeader')?.classList.add('hidden');
+  document.getElementById('chatGroupDesc')?.classList.add('hidden');
+  const dmHeader = document.getElementById('chatDmHeader');
+  if (dmHeader) dmHeader.classList.remove('hidden');
+  const partnerEl = document.getElementById('chatDmPartnerName');
+  if (partnerEl) partnerEl.textContent = `${partnerEmoji} ${partnerName}`;
+
+  // 입력창 placeholder 변경
+  const input = document.getElementById('chatInput');
+  if (input) input.placeholder = `${partnerName}님에게 메시지…`;
+
+  // 기존 그룹 리스너와 독립적으로 DM 리스너 시작
+  _closeDmListener();
+  _dmListener = db.collection('dms').doc(_dmKey).collection('messages')
+    .orderBy('sentAt', 'asc').limitToLast(100)
+    .onSnapshot(snap => {
+      const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderDmMessages(msgs);
+    }, () => {});
+
+  // 패널 열기
+  const panel = document.getElementById('chatPanel');
+  if (panel) panel.classList.remove('hidden');
+  _chatOpen = true;
+  document.getElementById('chatToggleBtn')?.classList.add('active');
+
+  setTimeout(() => {
+    const msgs = document.getElementById('chatMessages');
+    if (msgs) msgs.scrollTop = msgs.scrollHeight;
+    input?.focus();
+  }, 50);
+}
+
+function closeDM() {
+  _closeDmListener();
+  _dmMode    = false;
+  _dmPartner = null;
+  _dmKey     = null;
+
+  // 헤더 복원
+  document.getElementById('chatDmHeader')?.classList.add('hidden');
+  document.getElementById('chatGroupHeader')?.classList.remove('hidden');
+  document.getElementById('chatGroupDesc')?.classList.remove('hidden');
+
+  // 입력창 placeholder 복원
+  const input = document.getElementById('chatInput');
+  if (input) input.placeholder = '메시지 입력…';
+
+  // 그룹 채팅 메시지 다시 렌더링 (리스너는 계속 살아있음)
+  const panel = document.getElementById('chatPanel');
+  if (panel && !panel.classList.contains('hidden')) {
+    // 빈 메시지 영역 표시 — 다음 onSnapshot 도착 시 갱신됨
+    const wrap = document.getElementById('chatMessages');
+    if (wrap) wrap.innerHTML = '';
+  }
+  input?.focus();
+}
+
+async function dmSend() {
+  const input = document.getElementById('chatInput');
+  const text  = (input?.value || '').trim();
+  if (!text || !_dmKey) return;
+  const user = auth.currentUser;
+  if (!user) return;
+  const emoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
+  const name  = (user.displayName || user.email || '').split('@')[0] || '사용자';
+  input.value = '';
+  try {
+    await db.collection('dms').doc(_dmKey).collection('messages').add({
+      uid: user.uid, name, emoji, text, sentAt: Date.now()
+    });
+    // 30일 오래된 DM 정리 (비동기)
+    pruneOldDmMessages(_dmKey).catch(() => {});
+  } catch(e) { input.value = text; showToast('메시지 전송 실패. 다시 시도해주세요.'); }
+}
+
+function renderDmMessages(msgs) {
+  const wrap = document.getElementById('chatMessages');
+  if (!wrap) return;
+  const user = auth.currentUser;
+  if (!msgs.length) {
+    const partnerName = _dmPartner?.name || '상대방';
+    wrap.innerHTML = `<div class="chat-empty"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>${esc(partnerName)}님과 대화를 시작해보세요</span></div>`;
+    return;
+  }
+  const pad = n => String(n).padStart(2, '0');
+  let lastDay = '';
+  wrap.innerHTML = msgs.map(m => {
+    const isMe = m.uid === user?.uid;
+    const d    = new Date(m.sentAt);
+    const day  = `${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())}`;
+    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    let divider = '';
+    if (day !== lastDay) { lastDay = day; divider = `<div class="chat-day-divider"><span>${day}</span></div>`; }
+    const nameRow = !isMe ? `<div class="chat-msg-name">${esc(m.name)}</div>` : '';
+    return `${divider}
+    <div class="chat-msg${isMe ? ' chat-msg-me' : ''}">
+      <div class="chat-msg-avatar">${m.emoji || '😊'}</div>
+      <div class="chat-msg-body">
+        ${nameRow}
+        <div class="chat-msg-bubble">${esc(m.text)}</div>
+        <div class="chat-msg-time">${time}</div>
+      </div>
+    </div>`;
+  }).join('');
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+async function pruneOldDmMessages(dmKey) {
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  try {
+    const snap = await db.collection('dms').doc(dmKey).collection('messages').get();
     if (snap.empty) return;
     const batch = db.batch();
     let count = 0;
