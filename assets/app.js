@@ -50,55 +50,14 @@ db.enablePersistence().catch(() => {});
 
 // ── 인증 및 저장소 설정 ─────────────────────────────
 const googleProvider = new firebase.auth.GoogleAuthProvider();
-googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
 
-// iOS/Android Safari 등 File System Access API 미지원 환경 감지
-const _noFolderAPI = !window.showDirectoryPicker;
-
-let _storageMode       = _noFolderAPI ? 'drive-api' : 'local'; // 'drive-api' | 'local'
-let _currentFileName   = null;        // 현재 편집 중인 파일명 (확장자 제외)
-let _folderHandle      = null;        // FileSystemDirectoryHandle (IndexedDB에 영속)
-let _folderParentName  = null;        // 상위 폴더명 (경로 표시용)
-let _currentFileHandle = null;        // FileSystemFileHandle (현재 파일)
-let _pickerActive      = false;       // showDirectoryPicker 중복 호출 방지
-
-// ── Google Drive API 상태 변수 ─────────────────────
-let _driveToken          = null;   // OAuth 액세스 토큰
-let _driveTokenExpiry    = 0;      // 만료 시각 (ms)
-let _driveFileId         = null;   // 현재 편집 중인 Drive 파일 ID
-let _driveAppFolderId    = null;   // "Don't Panic Pre" 폴더 ID 캐시
-let _driveVersionFolderId = null;  // "_버전백업" 폴더 ID 캐시
-let _driveProjectFiles   = [];     // 홈 화면 파일 목록 캐시
+let _currentFileName  = null;   // 현재 편집 중인 프로젝트 표시 이름
+let _currentProjectId = null;   // 현재 편집 중인 Firestore 문서 ID
 
 // ── Firebase Auth 상태 감지 ───────────────────────
 auth.onAuthStateChanged(async user => {
   if (user) {
     document.getElementById('loginOverlay')?.classList.add('hidden');
-
-    // 저장소 모드 결정
-    const storedChoice = localStorage.getItem('dpre-storage-chosen');
-    if (storedChoice === 'drive-api' || storedChoice === 'local') {
-      _storageMode = storedChoice;
-    } else {
-      // 아직 선택 안 함 → 저장소 선택 화면
-      _showStorageChoiceOverlay();
-      // 사용자 정보만 미리 표시
-      try {
-        const name  = getProfileName();
-        const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-        setEl('myInfoEmail',      user.email || '');
-        setEl('myInfoName',       name);
-        setEl('sidebarUserName',  name);
-        setEl('sidebarUserEmail', user.email || '');
-        setEl('sidebarPopupName',  name);
-        setEl('sidebarPopupEmail', user.email || '');
-        applyProfileEmoji();
-        initEmojiPicker();
-      } catch(e) {}
-      return;
-    }
-
-    // 사용자 정보 표시
     try {
       const name  = getProfileName();
       const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
@@ -113,68 +72,18 @@ auth.onAuthStateChanged(async user => {
     } catch(e) {
       console.error('사용자 정보 표시 오류:', e);
     }
-
     showProjectsOverlay();
-
   } else {
-    // 미로그인: 로그인 화면으로 바로 이동
     document.getElementById('projectsOverlay')?.classList.add('hidden');
-    document.getElementById('storageSetupOverlay')?.classList.add('hidden');
     document.getElementById('loginOverlay')?.classList.remove('hidden');
   }
 });
-
-// ── 저장소 선택 오버레이 표시 ────────────────────
-function _showStorageChoiceOverlay() {
-  // iOS(폴더API 없음)에서는 로컬 카드 숨김
-  const localCard = document.getElementById('storageLocalCard');
-  if (localCard) localCard.style.display = _noFolderAPI ? 'none' : '';
-  document.getElementById('storageSetupOverlay')?.classList.remove('hidden');
-  document.getElementById('projectsOverlay')?.classList.add('hidden');
-}
-
-// 저장소 선택 화면에서 카드 클릭 (choice: 'drive-api' | 'local')
-async function chooseStorage(choice) {
-  localStorage.setItem('dpre-storage-chosen', choice);
-  _storageMode = choice;
-  document.getElementById('storageSetupOverlay')?.classList.add('hidden');
-
-  // 사용자 정보 표시 후 프로젝트 목록으로
-  const u = auth.currentUser;
-  if (u) {
-    try {
-      const name  = getProfileName();
-      const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-      setEl('myInfoEmail',      u.email || '');
-      setEl('myInfoName',       name);
-      setEl('sidebarUserName',  name);
-      setEl('sidebarUserEmail', u.email || '');
-      setEl('sidebarPopupName',  name);
-      setEl('sidebarPopupEmail', u.email || '');
-      applyProfileEmoji();
-      initEmojiPicker();
-    } catch(e) {}
-    showProjectsOverlay();
-  }
-}
-
-// 저장 방식 변경 (프로젝트 화면 링크)
-function resetStorageChoice() {
-  localStorage.removeItem('dpre-storage-chosen');
-  document.getElementById('projectsOverlay')?.classList.add('hidden');
-  _showStorageChoiceOverlay();
-}
 
 // ── Google 로그인 ────────────────────────────────
 async function googleLogin() {
   setAuthLoading(true);
   try {
-    const result = await auth.signInWithPopup(googleProvider);
-    const cred = result.credential;
-    if (cred?.accessToken) {
-      _driveToken = cred.accessToken;
-      _driveTokenExpiry = Date.now() + 55 * 60 * 1000;
-    }
+    await auth.signInWithPopup(googleProvider);
   } catch(e) {
     if (e.code !== 'auth/popup-closed-by-user') {
       const err = document.getElementById('authLoginError');
@@ -191,12 +100,7 @@ async function deleteAccount() {
   if (!confirm(`⚠️ 계정(${email})을 정말 삭제하시겠습니까?\n\n모든 스크립트 데이터가 영구 삭제되며\n이 작업은 되돌릴 수 없습니다.`)) return;
   try {
     // Google 재인증
-    const result = await auth.signInWithPopup(googleProvider);
-    const cred = result.credential;
-    if (cred?.accessToken) {
-      _driveToken = cred.accessToken;
-      _driveTokenExpiry = Date.now() + 55 * 60 * 1000;
-    }
+    await auth.signInWithPopup(googleProvider);
     await db.collection('users').doc(auth.currentUser.uid).delete().catch(() => {});
     await auth.currentUser.delete();
     alert('계정이 삭제되었습니다. 이용해 주셔서 감사합니다.');
@@ -208,12 +112,9 @@ async function deleteAccount() {
 // ── 로그아웃 ─────────────────────────────────────
 async function logout() {
   await presenceLeave().catch(() => {});
-  _folderHandle = null; _currentFileHandle = null; _currentFileName = null;
-  _driveToken = null; _driveTokenExpiry = 0; _driveFileId = null;
-  _driveAppFolderId = null; _driveVersionFolderId = null; _driveProjectFiles = [];
+  _currentFileName = null;
+  _currentProjectId = null;
   _dataLoaded = false;
-  localStorage.removeItem('dpre-storage-chosen');
-  try { await idbClearFolderHandle(); } catch(e) {}
   await auth.signOut();
   ed().innerHTML = '';
   scenes=[]; sched={}; charNotes={}; charInfo={}; manualCharsByScene={}; sceneNotes={}; sceneExtras={}; csLabels={}; globalChars=[]; charOrder=[]; hiddenChars=[]; propList=[]; costumeList=[]; pageNumberStyle=null;
@@ -246,178 +147,157 @@ function setAuthLoading(on) {
 // ══════════════════════════════════════════════════
 // Google Drive REST API 헬퍼
 // ══════════════════════════════════════════════════
+// Firestore 프로젝트 저장소
+// ══════════════════════════════════════════════════
 
-// 토큰 유효성 확인 및 갱신
-async function _driveEnsureToken() {
-  if (_driveToken && Date.now() < _driveTokenExpiry) return;
-  try {
-    const result = await auth.signInWithPopup(googleProvider);
-    const cred = result.credential;
-    if (cred?.accessToken) {
-      _driveToken = cred.accessToken;
-      _driveTokenExpiry = Date.now() + 55 * 60 * 1000;
-    }
-  } catch(e) {
-    throw new Error('Drive 토큰 갱신 실패: ' + e.message);
+function _fsProjects() {
+  return db.collection('users').doc(auth.currentUser.uid).collection('projects');
+}
+
+async function fsStoreSave(name, data) {
+  const col = _fsProjects();
+  if (_currentProjectId) {
+    await col.doc(_currentProjectId).set(
+      { name, data, updatedAt: firebase.firestore.FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+  } else {
+    const ref = await col.add({
+      name, data,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    _currentProjectId = ref.id;
   }
 }
 
-// Drive API fetch 래퍼
-async function _driveReq(method, url, bodyObj = null) {
-  await _driveEnsureToken();
-  const opts = { method, headers: { Authorization: `Bearer ${_driveToken}` } };
-  if (bodyObj) {
-    opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(bodyObj);
-  }
-  const res = await fetch(url, opts);
-  if (res.status === 401) {
-    // 토큰 만료 — 강제 갱신 후 1회 재시도
-    _driveToken = null; _driveTokenExpiry = 0;
-    await _driveEnsureToken();
-    opts.headers['Authorization'] = `Bearer ${_driveToken}`;
-    const retry = await fetch(url, opts);
-    if (!retry.ok) throw new Error(`Drive API ${retry.status}`);
-    return retry;
-  }
-  if (!res.ok) throw new Error(`Drive API ${res.status}`);
-  return res;
+async function fsStoreListProjects() {
+  const snap = await _fsProjects().orderBy('updatedAt', 'desc').get();
+  return snap.docs.map(d => ({
+    id: d.id,
+    name: d.data().name,
+    updatedAt: d.data().updatedAt?.toDate(),
+  }));
 }
 
-// multipart 업로드 (파일 생성/수정)
-async function _driveUpload(method, url, meta, content) {
-  await _driveEnsureToken();
-  const boundary = 'dpre_bnd_' + Date.now();
-  const body = [
-    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(meta)}`,
-    `\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(content, null, 2)}`,
-    `\r\n--${boundary}--`
-  ].join('');
-  const res = await fetch(url, {
-    method,
-    headers: {
-      Authorization: `Bearer ${_driveToken}`,
-      'Content-Type': `multipart/related; boundary="${boundary}"`
-    },
-    body
+async function fsStoreLoadProject(projectId) {
+  const doc = await _fsProjects().doc(projectId).get();
+  if (!doc.exists) throw new Error('프로젝트를 찾을 수 없습니다');
+  return doc.data().data;
+}
+
+async function fsStoreDeleteProject(projectId) {
+  const vSnap = await _fsProjects().doc(projectId).collection('versions').get();
+  const batch = db.batch();
+  vSnap.docs.forEach(d => batch.delete(d.ref));
+  batch.delete(_fsProjects().doc(projectId));
+  await batch.commit();
+}
+
+async function fsStoreRenameProject(projectId, newName) {
+  await _fsProjects().doc(projectId).update({ name: newName, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+}
+
+async function fsStoreSaveVersion(name, data) {
+  if (!_currentProjectId) return;
+  await _fsProjects().doc(_currentProjectId).collection('versions').add({
+    name, data, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   });
-  if (!res.ok) throw new Error(`Drive 업로드 ${res.status}: ${await res.text()}`);
-  return await res.json();
+  await fsStorePruneVersions();
 }
 
-// "Don't Panic Pre" 앱 폴더 획득 (없으면 생성)
-async function _driveGetAppFolder() {
-  if (_driveAppFolderId) return _driveAppFolderId;
-  const q = `name="Don't Panic Pre" and mimeType="application/vnd.google-apps.folder" and trashed=false`;
-  const res = await _driveReq('GET',
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`);
-  const { files } = await res.json();
-  if (files?.length) {
-    _driveAppFolderId = files[0].id;
-    return _driveAppFolderId;
-  }
-  // 폴더 생성
-  const created = await _driveReq('POST', 'https://www.googleapis.com/drive/v3/files',
-    { name: "Don't Panic Pre", mimeType: 'application/vnd.google-apps.folder' });
-  const folder = await created.json();
-  _driveAppFolderId = folder.id;
-  return _driveAppFolderId;
+async function fsStoreListVersions() {
+  if (!_currentProjectId) return [];
+  const snap = await _fsProjects().doc(_currentProjectId).collection('versions')
+    .orderBy('createdAt', 'desc').limit(20).get();
+  return snap.docs.map(d => ({ id: d.id, name: d.data().name }));
 }
 
-// "_버전백업" 폴더 획득 (없으면 생성)
-async function _driveGetVersionFolder() {
-  if (_driveVersionFolderId) return _driveVersionFolderId;
-  const parentId = await _driveGetAppFolder();
-  const q = `name="_버전백업" and '${parentId}' in parents and mimeType="application/vnd.google-apps.folder" and trashed=false`;
-  const res = await _driveReq('GET',
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`);
-  const { files } = await res.json();
-  if (files?.length) {
-    _driveVersionFolderId = files[0].id;
-    return _driveVersionFolderId;
-  }
-  const created = await _driveReq('POST', 'https://www.googleapis.com/drive/v3/files',
-    { name: '_버전백업', mimeType: 'application/vnd.google-apps.folder', parents: [parentId] });
-  const folder = await created.json();
-  _driveVersionFolderId = folder.id;
-  return _driveVersionFolderId;
+async function fsStoreLoadVersion(versionId) {
+  const doc = await _fsProjects().doc(_currentProjectId).collection('versions').doc(versionId).get();
+  if (!doc.exists) throw new Error('버전을 찾을 수 없습니다');
+  return doc.data().data;
 }
 
-// 프로젝트 파일 목록 조회
-async function driveListProjects() {
-  const folderId = await _driveGetAppFolder();
-  const q = `'${folderId}' in parents and name contains ".dpre.json" and trashed=false`;
-  const res = await _driveReq('GET',
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,modifiedTime)&orderBy=modifiedTime%20desc`);
-  const { files } = await res.json();
-  return files || [];
+async function fsStorePruneVersions() {
+  if (!_currentProjectId) return;
+  const snap = await _fsProjects().doc(_currentProjectId).collection('versions')
+    .orderBy('createdAt', 'desc').get();
+  const toDelete = snap.docs.slice(VERSION_MAX);
+  if (!toDelete.length) return;
+  const batch = db.batch();
+  toDelete.forEach(d => batch.delete(d.ref));
+  await batch.commit();
 }
 
-// 파일 읽기
-async function driveReadFile(fileId) {
-  const res = await _driveReq('GET',
-    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
-  return await res.json();
-}
+// ── Firestore 프로젝트 목록 렌더링 ────────────────
+let _fsProjectList = [];
 
-// 파일 저장 (fileId=null이면 생성, 있으면 업데이트)
-async function driveWriteFile(fileName, data, fileId = null, parentFolderId = null) {
-  if (!parentFolderId) parentFolderId = await _driveGetAppFolder();
-  const meta = fileId
-    ? { name: fileName + '.dpre.json' }
-    : { name: fileName + '.dpre.json', parents: [parentFolderId] };
-  const uploadUrl = fileId
-    ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`
-    : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-  const method = fileId ? 'PATCH' : 'POST';
-  const result = await _driveUpload(method, uploadUrl, meta, data);
-  return result.id || fileId;
-}
-
-// Drive 버전 파일 정리 (10개 초과 삭제)
-async function _drivePruneVersions(vFolderId) {
-  if (!_currentFileName) return;
-  const suffix = `_${_currentFileName}.dpre.json`;
-  const q = `'${vFolderId}' in parents and name contains "${_currentFileName}" and trashed=false`;
-  const res = await _driveReq('GET',
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&orderBy=name%20desc`);
-  const { files } = await res.json();
-  const mine = (files || []).filter(f => f.name.endsWith(suffix));
-  for (const f of mine.slice(VERSION_MAX)) {
-    await _driveReq('DELETE', `https://www.googleapis.com/drive/v3/files/${f.id}`).catch(() => {});
-  }
-}
-
-// Drive 프로젝트 목록 렌더링
-function _renderDriveProjectList(files) {
+function _renderFsProjectList(projects) {
   const listEl = document.getElementById('folderBrowseList');
   if (!listEl) return;
-  listEl.className = files.length > 3 ? 'folder-browse-scroll' : '';
-  listEl.innerHTML = files.length
-    ? files.map((f, i) => `
-        <div class="folder-browse-item" onclick="openDriveProject(${i})">
+  listEl.className = projects.length > 3 ? 'folder-browse-scroll' : '';
+  const editSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+  const trashSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
+  listEl.innerHTML = projects.length
+    ? projects.map((p, i) => `
+        <div class="folder-browse-item fbi-drive-item">
           <span class="fbi-icon">📄</span>
-          <span class="fbi-name">${esc(_projectBaseName(f.name))}</span>
-          <span class="fbi-date">${_fmtModified(new Date(f.modifiedTime).getTime())}</span>
+          <span class="fbi-name fbi-open-link" onclick="openFsProject(${i})">${esc(p.name)}</span>
+          <span class="fbi-actions">
+            <button class="fbi-action-btn" title="이름 변경" onclick="fsRenameProject(${i},event)">${editSvg}</button>
+            <button class="fbi-action-btn fbi-delete-btn" title="삭제" onclick="fsDeleteProject(${i},event)">${trashSvg}</button>
+          </span>
+          <span class="fbi-date">${_fmtModified(p.updatedAt?.getTime())}</span>
         </div>`).join('')
-    : '<div style="text-align:center;padding:12px;opacity:.55">Drive에 프로젝트가 없습니다</div>';
+    : '<div style="text-align:center;padding:12px;font-size:12px;opacity:.55">프로젝트가 없습니다</div>';
 }
 
-// Drive 프로젝트 열기
-async function openDriveProject(idx) {
-  const f = _driveProjectFiles[idx];
-  if (!f) return;
+async function openFsProject(idx) {
+  const p = _fsProjectList[idx];
+  if (!p) return;
   showToast('불러오는 중...');
   try {
-    const data = await driveReadFile(f.id);
-    _driveFileId = f.id;
-    _currentFileName = _projectBaseName(f.name);
+    const data = await fsStoreLoadProject(p.id);
+    _currentProjectId = p.id;
+    _currentFileName  = p.name;
     document.getElementById('projectsOverlay')?.classList.add('hidden');
     switchTab('editor', document.querySelector('.nav-btn'));
     await applyLoadedData(data);
-    addRecentProject(_currentFileName, 'Google Drive', null, f.id);
+    addRecentProject(p.name, p.id);
   } catch(e) {
-    showToast('파일 불러오기 오류: ' + e.message);
+    showToast('불러오기 오류: ' + e.message);
+  }
+}
+
+async function fsRenameProject(idx, e) {
+  e?.stopPropagation();
+  const p = _fsProjectList[idx];
+  if (!p) return;
+  const newName = prompt('새 이름:', p.name);
+  if (!newName?.trim() || newName.trim() === p.name) return;
+  try {
+    await fsStoreRenameProject(p.id, newName.trim());
+    if (_currentProjectId === p.id) _currentFileName = newName.trim();
+    showToast('이름이 변경되었습니다');
+    showProjectsOverlay();
+  } catch(err) {
+    showToast('이름 변경 오류: ' + err.message);
+  }
+}
+
+async function fsDeleteProject(idx, e) {
+  e?.stopPropagation();
+  const p = _fsProjectList[idx];
+  if (!p) return;
+  if (!confirm(`"${p.name}" 을(를) 삭제할까요?\n버전 히스토리도 모두 삭제됩니다.`)) return;
+  try {
+    await fsStoreDeleteProject(p.id);
+    if (_currentProjectId === p.id) { _currentProjectId = null; _currentFileName = null; }
+    showToast('삭제 완료');
+    showProjectsOverlay();
+  } catch(err) {
+    showToast('삭제 오류: ' + err.message);
   }
 }
 
@@ -4659,30 +4539,15 @@ function switchTab(id, btn) {
 function refreshSettingsTab() {
   const bc = document.getElementById('stgBreadcrumb');
   if (!bc) return;
-
   const sep = `<span class="stg-bc-sep">›</span>`;
-
-  const driveIcon  = `<svg class="stg-bc-icon" width="14" height="14" viewBox="0 0 87.3 78"><path fill="#0066DA" d="M6.6 66.85l3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3L27.5 53H0c0 1.55.4 3.1 1.2 4.5z"/><path fill="#00AC47" d="M43.65 25L29.9 0c-1.35.8-2.5 1.9-3.3 3.3L1.2 48.5A9.13 9.13 0 0 0 0 53h27.5z"/><path fill="#EA4335" d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5H60l5.55 10.85z"/><path fill="#00832D" d="M43.65 25L57.4 0c-1.35-.8-2.95-1.2-4.5-1.2H34.4c-1.55 0-3.1.45-4.5 1.2z"/><path fill="#2684FC" d="M59.8 53H27.5L13.75 76.8c1.4.8 2.95 1.2 4.5 1.2h50.85c1.55 0 3.1-.45 4.5-1.2z"/><path fill="#FFBA00" d="M73.4 26.5l-12.25-21.2c-.8-1.4-1.95-2.5-3.3-3.3L43.65 25 59.8 53h27.45c0-1.55-.4-3.1-1.2-4.5z"/></svg>`;
-  const folderIcon = `<svg class="stg-bc-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
-  const fileIcon   = `<svg class="stg-bc-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
-
-  const parts = [];
-
-  if (_storageMode === 'drive-api') {
-    parts.push(`<span class="stg-bc-item">${driveIcon}Google Drive</span>`);
-    parts.push(`<span class="stg-bc-item">Don't Panic Pre</span>`);
-  } else if (_folderHandle) {
-    parts.push(`<span class="stg-bc-item">${folderIcon}${_folderHandle.name}</span>`);
-  } else {
-    parts.push(`<span class="stg-bc-item stg-bc-empty">폴더 미선택</span>`);
-  }
-
+  const fbIcon = `<svg class="stg-bc-icon" width="14" height="14" viewBox="0 0 192 192"><path fill="#FFA000" d="M108.5 36.5l-50 86.7H0L50 36.5z"/><path fill="#F57F17" d="M108.5 36.5l50 86.7H58.5z"/><path fill="#FFCA28" d="M0 123.2l50 32.3 50-32.3-50-86.7z"/><path fill="#FFA000" d="M50 155.5l50-32.3h92l-92 32.3z"/><path fill="#F57F17" d="M142 123.2l-92 32.3 50-86.7z"/></svg>`;
+  const parts = [`<span class="stg-bc-item">${fbIcon}Firebase</span>`];
   if (_currentFileName) {
-    parts.push(`<span class="stg-bc-item stg-bc-file">${fileIcon}${_currentFileName}.dpre.json</span>`);
+    const fileIcon = `<svg class="stg-bc-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
+    parts.push(`<span class="stg-bc-item stg-bc-file">${fileIcon}${_currentFileName}</span>`);
   } else {
-    parts.push(`<span class="stg-bc-item stg-bc-empty">파일 없음</span>`);
+    parts.push(`<span class="stg-bc-item stg-bc-empty">프로젝트 없음</span>`);
   }
-
   bc.innerHTML = parts.join(sep);
   renderVersionHistory();
 }
@@ -6172,196 +6037,24 @@ async function doSave() {
     month:       calMonth.getTime(),
     savedAt:     new Date().toISOString(),
   };
-
-  if (_storageMode === 'drive-api') {
-    if (!_currentFileName) return;
-    try {
-      _driveFileId = await driveWriteFile(_currentFileName, data, _driveFileId);
-    } catch(e) {
-      showToast('Drive 저장 실패: ' + e.message);
-      console.error('Drive 저장 오류:', e);
-      return;
-    }
-  } else {
-    await localSaveProject(data);
+  try {
+    await fsStoreSave(_currentFileName || '새 프로젝트', data);
+  } catch(e) {
+    showToast('저장 실패: ' + e.message);
+    console.error('Firestore 저장 오류:', e);
+    return;
   }
-
   const cnt = _incSaveCount();
   if (cnt % 10 === 0) saveVersionSnapshot(data).catch(e => console.warn('버전 저장 오류:', e));
-}
-
-async function load() {
-  if (!auth.currentUser) { console.warn('[load] currentUser 없음'); return; }
-  try {
-    const snap = await db.collection('users').doc(auth.currentUser.uid).get();
-    console.log('[load] 문서 존재:', snap.exists);
-    if (snap.exists) {
-      const d = snap.data();
-      console.log('[load] html 길이:', d.html?.length ?? 0, '/ author:', d.author);
-
-      // ── 1단계: 모든 데이터 변수를 먼저 복원 ──────────
-      // onEditorInput() → renderSidebar() 호출 시점에 sceneExtras 등이
-      // 이미 채워져 있어야 씬 브레이크다운 요소가 올바르게 표시됩니다.
-      if (d.sched)         sched              = d.sched;
-      if (d.schedDays)     schedDays          = d.schedDays;
-      if (d.charNotes)     charNotes          = d.charNotes;
-      if (d.charInfo)      charInfo           = d.charInfo;
-      if (d.manualChars)   manualCharsByScene = d.manualChars;
-      if (d.sceneNotes)    sceneNotes         = d.sceneNotes;
-      if (d.sceneExtras)   sceneExtras        = d.sceneExtras;
-      if (d.csLabels)      csLabels           = d.csLabels;
-      // 라벨 마이그레이션: 구 기본값 → 신 기본값
-      if (csLabels.art1   === '미    술') csLabels.art1   = '미술/공간소품';
-      if (csLabels.props1 === '소   품')  csLabels.props1 = '인물소품';
-      if (d.globalChars)   globalChars        = d.globalChars;
-      if (d.charOrder)     charOrder          = d.charOrder;
-      if (d.hiddenChars)   hiddenChars        = d.hiddenChars;
-      if (d.locationInfo)  locationInfo       = d.locationInfo;
-      if (d.locationOrder) locationOrder      = d.locationOrder;
-      if (d.propList)      propList           = d.propList;
-      if (d.costumeList)   costumeList        = d.costumeList;
-      pageNumberStyle = d.pageNumberStyle || null;
-      if (d.month)         calMonth           = new Date(d.month);
-
-      if (d.project)  document.getElementById('projectName').value = d.project;
-      if (d.author)   document.getElementById('authorName').value  = d.author;
-      if (d.date)     document.getElementById('projectDate').value  = d.date;
-      if (d.adPhone)  { projectAdPhone = d.adPhone; document.getElementById('projectAdPhone').value = d.adPhone; }
-      if (d.pdPhone)  { projectPdPhone = d.pdPhone; document.getElementById('projectPdPhone').value = d.pdPhone; }
-
-      if (d.callSheets) {
-        callSheets = d.callSheets;
-        // 마지막으로 봤던 회차로 복원, 없으면 마지막 회차
-        const savedIdx = d.lastCSNum != null
-          ? callSheets.findIndex(c => c.csNum === d.lastCSNum)
-          : -1;
-        currentCSIdx = savedIdx >= 0 ? savedIdx : Math.max(0, callSheets.length - 1);
-        // 구버전 partRows role 기본값 목록 (플레이스홀더로 전환)
-        const _oldRoles = new Set(['남자 인물','촬영 지원','슬레이터','선체크','스크립터','연락','숙소','식사','미술','통제']);
-        callSheets.forEach(cs => {
-          if (!cs.partRows) cs.partRows = defaultCS(cs.csNum).partRows;
-          while (cs.ttRows.length < 17)    cs.ttRows.push({ time:'', event:'' });
-          while (cs.actorRows.length < 6)  cs.actorRows.push({ role:'', actor:'', arrival:'', place:'', manager:'' });
-          cs.actorRows.forEach(r => { if (r.actor === undefined) r.actor = ''; });
-          cs.partRows.forEach(r => { if (_oldRoles.has(r.role)) r.role = ''; });
-          if (cs.ttRows[0]?.time === '13:00') cs.ttRows[0].time = '';
-          if (cs.ttRows[0]?.event === '집합 및 촬영 준비') cs.ttRows[0].event = '';
-          if (cs.ttRows[1]?.time === '13:30')  cs.ttRows[1].time = '';
-          if (cs.ttRows[1]?.event === '촬영 시작') cs.ttRows[1].event = '';
-        });
-      }
-      // 프로젝트 연락처가 있으면 빈 callsheet 셀에도 채워넣기
-      if (projectAdPhone || projectPdPhone) {
-        callSheets.forEach(cs => {
-          if (!cs.adPhone && projectAdPhone) cs.adPhone = projectAdPhone;
-          if (!cs.pdPhone && projectPdPhone) cs.pdPhone = projectPdPhone;
-        });
-      }
-      // schedDays 없는 구버전 데이터: callSheets 날짜로 재구성
-      if (!d.schedDays && callSheets.length) {
-        callSheets.forEach(cs => { if (cs.date && cs.csNum) schedDays[cs.date] = cs.csNum; });
-      }
-      // schedDays에 있는 회차 중 callSheet 없는 것 생성 (데이터 불일치 복원)
-      Object.entries(schedDays).forEach(([date, num]) => {
-        if (!callSheets.find(c => c.csNum === num)) ensureCallSheet(num, date);
-      });
-
-      // ── 2단계: 에디터 HTML 복원 + 파싱 ───────────────
-      // 모든 데이터가 복원된 뒤에 onEditorInput()을 호출해야
-      // renderSidebar()가 sceneExtras를 참조해 요소를 올바르게 표시합니다.
-      if (d.html) {
-        ed().innerHTML = d.html;
-        // 이전 서식 패널이 심어놓은 inline 폰트 스타일 제거
-        ed().querySelectorAll('.l-heading,.l-action,.l-char,.l-dialogue').forEach(el => {
-          el.style.fontFamily = '';
-          el.style.fontSize   = '';
-          el.style.fontWeight = '';
-          el.style.lineHeight = '';
-          el.style.textAlign  = '';
-          el.style.marginTop  = '';
-          el.style.marginBottom = '';
-        });
-        onEditorInput();
-        // scenes가 채워진 뒤 소품리스트 동기화 (장소명 자동등록은 scenes.loc 필요)
-        syncAllPropsFromBreakdown();
-        syncAllCostumesFromBreakdown();
-        // sched 날짜를 scenes에 재동기화 (onEditorInput이 sched 복원 전 실행 시 손실)
-        scenes.forEach(s => {
-          s.schedDate = null;
-          for (const [date, nums] of Object.entries(sched))
-            if (nums.includes(s.number)) { s.schedDate = date; break; }
-        });
-        // sched 동기화 후 사이드바 재렌더링
-        renderSidebar();
-      }
-    }
-  } catch(e) {
-    console.error('Firestore 불러오기 오류:', e);
-  }
-  _dataLoaded = true; // 이후부터 save() 허용
-  setMonTitle();
-  updateHeaderDisplay();
-}
-
-// ══════════════════════════════════════════════════
-// 로컬 파일 시스템 (File System Access API)
-// Google Drive Desktop 동기화 폴더 안에 저장하면 자동 클라우드 동기화
-// ══════════════════════════════════════════════════
-
-// ── IndexedDB: 폴더 핸들 영속화 ─────────────────
-function _idbOpen() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open('dpre-fs', 1);
-    req.onupgradeneeded = e => e.target.result.createObjectStore('handles');
-    req.onsuccess = e => resolve(e.target.result);
-    req.onerror   = reject;
-  });
-}
-async function idbSaveFolderHandle(handle) {
-  const db = await _idbOpen();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('handles', 'readwrite');
-    const store = tx.objectStore('handles');
-    store.put(handle, 'projectFolder');
-    store.put(handle, 'folder:' + handle.name); // 폴더명으로도 저장 (최근 프로젝트 복원용)
-    tx.oncomplete = resolve; tx.onerror = reject;
-  });
-}
-async function idbGetFolderHandle() {
-  const db = await _idbOpen();
-  return new Promise((resolve, reject) => {
-    const tx  = db.transaction('handles', 'readonly');
-    const req = tx.objectStore('handles').get('projectFolder');
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror   = reject;
-  });
-}
-async function idbGetFolderHandleByName(name) {
-  const db = await _idbOpen();
-  return new Promise((resolve, reject) => {
-    const tx  = db.transaction('handles', 'readonly');
-    const req = tx.objectStore('handles').get('folder:' + name);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror   = reject;
-  });
-}
-async function idbClearFolderHandle() {
-  const db = await _idbOpen();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('handles', 'readwrite');
-    tx.objectStore('handles').clear(); // 로그아웃 시 모든 핸들 삭제
-    tx.oncomplete = resolve; tx.onerror = reject;
-  });
 }
 
 // ── 최근 프로젝트 관리 ──────────────────────────
 function getRecentProjects() {
   try { return JSON.parse(localStorage.getItem('dpre-recent') || '[]'); } catch { return []; }
 }
-function addRecentProject(name, folderName, parentName, driveFileId = null) {
-  const folderPath = parentName ? `${parentName} / ${folderName}` : folderName;
-  const list = getRecentProjects().filter(p => !(p.name === name && p.folderName === folderName));
-  list.unshift({ name, folderName, folderPath, openedAt: new Date().toISOString(), driveFileId });
+function addRecentProject(name, projectId = null) {
+  const list = getRecentProjects().filter(p => p.projectId !== projectId);
+  list.unshift({ name, projectId, openedAt: new Date().toISOString() });
   localStorage.setItem('dpre-recent', JSON.stringify(list.slice(0, 15)));
 }
 function removeRecentProject(idx) {
@@ -6389,7 +6082,7 @@ function renderRecentProjects() {
         <div class="recent-project-name">${esc(p.name)}</div>
         ${dateStr ? `<div class="recent-project-date">${dateStr}</div>` : ''}
       </div>
-      <div class="recent-project-path">📁 ${esc(p.folderPath || p.folderName || '')}</div>
+      <div class="recent-project-path">📁 Firebase</div>
     </div>`;
   }).join('');
   const moreCount = allList.length - 1;
@@ -6407,301 +6100,30 @@ function toggleRecentExpand() {
   renderRecentProjects();
 }
 
-function _projectBaseName(fileName) {
-  return String(fileName || '')
-    .replace(/\.dpre\.json$/i, '')
-    .replace(/\.json$/i, '');
-}
-
 async function openRecentProject(idx) {
   const list = getRecentProjects();
   const p = list[idx];
   if (!p) return;
-
-  // Drive 모드: driveFileId로 직접 열기
-  if (p.driveFileId) {
-    showToast('불러오는 중...');
-    try {
-      const data = await driveReadFile(p.driveFileId);
-      _driveFileId = p.driveFileId;
-      _currentFileName = p.name;
-      document.getElementById('projectsOverlay')?.classList.add('hidden');
-      switchTab('editor', document.querySelector('.nav-btn'));
-      await applyLoadedData(data);
-    } catch(e) {
-      showToast('Drive 파일 열기 오류: ' + e.message);
-    }
-    return;
-  }
-
-  // 클릭 피드백: 해당 항목 로딩 표시
+  if (!p.projectId) { removeRecentProject(idx); return; }
   const itemEl = document.querySelectorAll('.recent-project-item')[idx];
   if (itemEl) { itemEl.style.opacity = '0.5'; itemEl.style.pointerEvents = 'none'; }
   const resetEl = () => { if (itemEl) { itemEl.style.opacity = ''; itemEl.style.pointerEvents = ''; } };
-
-  const _tryLoadFile = async (h) => {
-    if (!h) return false;
-    for (const fname of [p.name + '.dpre.json', p.name + '.json']) {
-      try {
-        const fh = await h.getFileHandle(fname);
-        const data = JSON.parse(await (await fh.getFile()).text());
-        _folderHandle      = h;
-        _currentFileName   = _projectBaseName(fh.name) || p.name;
-        _currentFileHandle = fh;
-        await idbSaveFolderHandle(h);
-        document.getElementById('folderBrowseSection').style.display = 'none';
-        document.getElementById('projectsOverlay')?.classList.add('hidden');
-        switchTab('editor', document.querySelector('.nav-btn'));
-        await applyLoadedData(data);
-        addRecentProject(_currentFileName, h.name, null);
-        return true;
-      } catch(e) {}
-    }
-    return false;
-  };
-
-  // ── 1차: 메모리 핸들 (user gesture 유효 — IDB 조회 없음) ──
-  if (_folderHandle) {
-    try {
-      const perm = await _folderHandle.queryPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') await _folderHandle.requestPermission({ mode: 'readwrite' });
-      if (await _tryLoadFile(_folderHandle)) { resetEl(); return; }
-    } catch(e) {}
-  }
-
-  // ── 2차: IDB 핸들 (이미 granted 상태인 경우만 — user gesture 불필요) ──
-  for (const getH of [
-    () => idbGetFolderHandleByName(p.folderName),
-    () => idbGetFolderHandle(),
-  ]) {
-    try {
-      const h = await getH();
-      if (!h || h === _folderHandle) continue;
-      const perm = await h.queryPermission({ mode: 'readwrite' });
-      if (perm === 'granted' && await _tryLoadFile(h)) { resetEl(); return; }
-    } catch(e) {}
-  }
-
-  // ── 3차: 폴더 직접 선택 (confirm 클릭이 새 user gesture) ──
-  resetEl();
-  if (!window.showDirectoryPicker) {
-    showToast('폴더 선택은 Android Chrome 또는 데스크탑 Chrome/Edge에서 지원됩니다.', 3500);
-    removeRecentProject(idx);
-    return;
-  }
-  if (!confirm(`"${p.name}" 프로젝트 파일을 찾을 수 없습니다.\n저장된 폴더를 선택해 주세요.`)) {
-    removeRecentProject(idx);
-    return;
-  }
+  showToast('불러오는 중...');
   try {
-    const h = await window.showDirectoryPicker({ mode: 'readwrite' });
-    _folderHandle = h;
-    if (await _tryLoadFile(h)) return;
-    alert('선택한 폴더에서 해당 프로젝트 파일을 찾을 수 없습니다.');
-    removeRecentProject(idx);
-  } catch(e) { if (e.name !== 'AbortError') alert('폴더 선택 중 오류가 발생했습니다.'); }
-}
-
-// ── 폴더 핸들 권한 확인 ─────────────────────────
-async function verifyFolderAccess(handle) {
-  if (!handle) return false;
-  const perm = await handle.queryPermission({ mode: 'readwrite' });
-  if (perm === 'granted') return true;
-  try {
-    const req = await handle.requestPermission({ mode: 'readwrite' });
-    return req === 'granted';
-  } catch(e) {
-    // 사용자 제스처 소실 등으로 requestPermission이 막히는 경우 false 처리
-    return false;
-  }
-}
-
-// ── 로컬 폴더 선택 ───────────────────────────────
-function _alertFolderPickerError(e) {
-  if (!e) return;
-  if (e.name === 'AbortError') return;
-  if (e.name === 'SecurityError') {
-    alert('시스템 폴더는 선택할 수 없습니다.\n프로젝트 폴더(하위 폴더)를 선택해주세요.');
-    return;
-  }
-  if (e.name === 'NotAllowedError') {
-    alert('폴더 접근 권한이 거부되었습니다.\n브라우저 권한을 허용한 뒤 다시 시도해주세요.');
-    return;
-  }
-  if (e.name === 'TypeError') {
-    showToast('폴더 선택 API가 이 환경에서 제한됩니다. Android Chrome 또는 데스크탑 Chrome/Edge를 사용해주세요.', 4000);
-    return;
-  }
-  alert(`폴더 선택 중 오류가 발생했습니다.\n(${e.name || 'Error'})`);
-}
-
-function _showFolderPickerGuide(onConfirm) {
-  const title = '구글 드라이브 협업 폴더 만들기';
-
-  const steps = `<li>내 컴퓨터에 <span style="color:#fbbf24;font-weight:700">Google Drive 데스크톱 앱</span>이 설치되어 있어야 합니다.</li>
-     <li>파인더에서 <span style="color:#fbbf24;font-weight:700">내 컴퓨터 - Google Drive - 프로젝트용 새 폴더</span>를 미리 만들어주세요.</li>
-     <li>폴더 선택 창에서 만들어진 새 폴더를 선택 후 <strong>열기</strong> 클릭.</li>`;
-
-  const note = `<p style="font-size:12px;opacity:.65;margin:0 0 20px;line-height:1.6">구글 드라이브 폴더를 공유하거나 프로젝트 파일을 공유하여<br>팀원과 함께 작업할 수 있습니다.</p>`;
-
-  let modal = document.getElementById('folderGuideModal');
-  if (!modal) {
-    modal = document.createElement('div');
-    modal.id = 'folderGuideModal';
-    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';
-    document.body.appendChild(modal);
-  }
-  modal.innerHTML = `
-    <div style="background:var(--bg-card,#1e1e2e);border:1px solid var(--border,#333);border-radius:16px;padding:28px 32px;max-width:380px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.5)">
-      <div style="font-size:15px;font-weight:700;margin-bottom:10px">${title}</div>
-      ${note}
-      <ol style="font-size:13px;line-height:1.9;opacity:.85;padding-left:18px;margin:0 0 14px">${steps}</ol>
-      <div style="display:flex;align-items:flex-start;gap:7px;background:rgba(255,255,255,.05);border-radius:8px;padding:10px 13px;margin-bottom:20px;font-size:11.5px;color:var(--text-dim);line-height:1.6">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;opacity:.7"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-        <span>개인 로컬 작업인 경우, 내 컴퓨터 안에 원하는 폴더를 선택하세요. 추후 폴더를 구글 드라이브로 옮기면 협업도 가능합니다.</span>
-      </div>
-      <div style="display:flex;gap:10px;justify-content:flex-end">
-        <button id="folderGuideCancel" style="padding:8px 18px;border-radius:8px;border:1px solid var(--border,#444);background:transparent;color:inherit;cursor:pointer;font-size:13px">취소</button>
-        <button id="folderGuideConfirm" style="padding:8px 18px;border-radius:8px;border:none;background:var(--accent,#f59e0b);color:#000;cursor:pointer;font-size:13px;font-weight:700">폴더 선택하기</button>
-      </div>
-    </div>`;
-  modal.style.display = 'flex';
-  document.getElementById('folderGuideCancel').onclick  = () => { modal.style.display = 'none'; };
-  document.getElementById('folderGuideConfirm').onclick = () => { modal.style.display = 'none'; onConfirm(); };
-}
-
-async function _doPickFolder() {
-  if (!window.showDirectoryPicker) {
-    showToast('폴더 선택은 Android Chrome 또는 데스크탑 Chrome/Edge에서 지원됩니다.\niOS Safari는 현재 지원하지 않습니다.', 4000);
-    return;
-  }
-  if (_pickerActive) return;
-  _pickerActive = true;
-  try {
-    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
-    _folderHandle     = handle;
-    _folderParentName = null;
-    // 폴더를 직접 선택했으므로 항상 로컬 파일 모드
-    _storageMode = 'local';
-    localStorage.setItem('dpre-storage-chosen', 'local');
-    await idbSaveFolderHandle(handle);
-    refreshSettingsTab();
-    if (_dataLoaded && _currentFileName) await doSave();
-    // 새 프로젝트 모달이 열려 있으면 경로 즉시 갱신
-    if (!document.getElementById('newProjectModal')?.classList.contains('hidden')) {
-      showNewProjectModal();
-    }
-  } catch(e) {
-    if (e.name === 'AbortError') return;
-    if (e.name === 'SecurityError') {
-      _showFolderPickerGuide(_doPickFolder);
-    } else {
-      console.error('폴더 선택 오류:', e);
-      _alertFolderPickerError(e);
-    }
-  } finally {
-    _pickerActive = false;
-  }
-}
-
-async function pickProjectFolder() {
-  _showFolderPickerGuide(_doPickFolder);
-}
-
-// ── 파일 열기 (공유/외부 파일) ─────────────────
-async function pickOtherProjectFolder() {
-  if (!window.showDirectoryPicker) {
-    showToast('폴더 선택은 Android Chrome 또는 데스크탑 Chrome/Edge에서 지원됩니다.\niOS Safari는 현재 지원하지 않습니다.', 4000);
-    return;
-  }
-  if (_pickerActive) return;
-  _pickerActive = true;
-  // 10초 안전 해제 — 어떤 경로로든 완료되면 해제됨
-  const releasePicker = () => { _pickerActive = false; };
-  setTimeout(releasePicker, 10000);
-  try {
-    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
-    _folderHandle = handle;
-    _storageMode = 'local';
-    localStorage.setItem('dpre-storage-chosen', 'local');
-    await idbSaveFolderHandle(handle);
-    await _showFolderBrowseModal(handle);
-  } catch(e) {
-    if (e.name === 'AbortError') { releasePicker(); return; }
-    if (e.name === 'SecurityError') {
-      alert('시스템 폴더는 선택할 수 없습니다.\n열려는 프로젝트 파일이 들어 있는 폴더를 선택해주세요.');
-      releasePicker(); return;
-    } else {
-      _alertFolderPickerError(e);
-    }
-  }
-  releasePicker();
-}
-
-function _folderBrowseTitleHTML(handle) {
-  return `<span style="text-transform:none">📁 ${handle.name}</span>`;
-}
-
-async function _showFolderBrowseModal(handle, options = {}) {
-  const shouldScroll = options.scroll !== false;
-  const section = document.getElementById('folderBrowseSection');
-  const titleEl = document.getElementById('folderBrowseTitle');
-  const listEl  = document.getElementById('folderBrowseList');
-  if (titleEl) titleEl.innerHTML = _folderBrowseTitleHTML(handle);
-  if (listEl)  listEl.innerHTML = '<div style="text-align:center;padding:12px;opacity:.5;font-size:12px">불러오는 중...</div>';
-  if (section) {
-    section.style.display = 'block';
-    if (shouldScroll) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-
-  try {
-    const files = await localListProjects(handle);
-    _showFolderBrowseModal._handle = handle;
-    _showFolderBrowseModal._files  = files;
-
-    if (!files.length) {
-      if (listEl) listEl.innerHTML = '<div style="text-align:center;padding:12px;font-size:12px;opacity:.55">이 폴더에 프로젝트(.json)가 없습니다.</div>';
-      return;
-    }
-    if (listEl) {
-      listEl.className = files.length > 3 ? 'folder-browse-scroll' : '';
-      listEl.innerHTML = files.map((f, i) => {
-        const name = _projectBaseName(f.name);
-        return `<div class="folder-browse-item" onclick="openBrowsedProject(${i})">
-          <span class="fbi-icon">📄</span>
-          <span class="fbi-name">${esc(name)}</span>
-          <span class="fbi-date">${_fmtModified(f.modifiedTime)}</span>
-        </div>`;
-      }).join('');
-    }
-  } catch(e) {
-    console.error('폴더 읽기 오류:', e);
-    if (listEl) listEl.innerHTML = `<div style="text-align:center;padding:12px;font-size:12px;color:#f87171">폴더를 읽을 수 없습니다: ${e.message}</div>`;
-  }
-}
-
-async function openBrowsedProject(idx) {
-  const files  = _showFolderBrowseModal._files;
-  const handle = _showFolderBrowseModal._handle;
-  if (!files?.[idx] || !handle) return;
-  const f = files[idx];
-  try {
-    const text = await (await f.fileHandle.getFile()).text();
-    const data = JSON.parse(text);
-    const name = _projectBaseName(f.name);
-    _folderHandle = handle;
-    await idbSaveFolderHandle(handle);
-    _currentFileName   = name;
-    _currentFileHandle = f.fileHandle;
-    document.getElementById('folderBrowseSection').style.display = 'none';
+    const data = await fsStoreLoadProject(p.projectId);
+    _currentProjectId = p.projectId;
+    _currentFileName  = p.name;
     document.getElementById('projectsOverlay')?.classList.add('hidden');
     switchTab('editor', document.querySelector('.nav-btn'));
     await applyLoadedData(data);
-    addRecentProject(name, handle.name, null);
+    resetEl();
   } catch(e) {
-    console.error('프로젝트 열기 오류:', e);
+    resetEl();
+    showToast('불러오기 실패: ' + e.message);
+    removeRecentProject(idx);
   }
 }
+
 
 /** modifiedTime(ms) → "26.11.05 오후 2:00" */
 function _fmtModified(ms) {
@@ -6717,148 +6139,39 @@ function _fmtModified(ms) {
   return `${yy}.${mm}.${dd} ${ampm} ${h12}:${min}`;
 }
 
-// ── 로컬 파일 목록 ───────────────────────────────
-async function localListProjects(dirHandle) {
-  const files = [];
-  for await (const [name, fh] of dirHandle.entries()) {
-    if (fh.kind !== 'file') continue;
-    if (!/\.json$/i.test(name)) continue;
-    const f = await fh.getFile();
-    files.push({ name, fileHandle: fh, modifiedTime: f.lastModified });
-  }
-  return files.sort((a, b) => b.modifiedTime - a.modifiedTime);
-}
-
-// ── 로컬 파일 저장 ───────────────────────────────
-async function localSaveProject(data) {
-  if (!_folderHandle) { console.warn('저장 폴더 미선택'); return; }
-  const name = (_currentFileName || (document.getElementById('projectName')?.value || '새 프로젝트').trim());
-  _currentFileName = name;
-  const fileName = name + '.dpre.json';
-  try {
-    const fh = await _folderHandle.getFileHandle(fileName, { create: true });
-    _currentFileHandle = fh;
-    const writable = await fh.createWritable();
-    await writable.write(JSON.stringify(data, null, 2));
-    await writable.close();
-  } catch(e) {
-    console.error('파일 저장 오류:', e);
-  }
-}
-
-// ── 버전 히스토리 ────────────────────────────────
-const VERSION_FOLDER = '_버전백업';
-const VERSION_MAX    = 10;
-
-async function _getVersionsDir(create = false) {
-  if (!_folderHandle) return null;
-  try {
-    return await _folderHandle.getDirectoryHandle(VERSION_FOLDER, { create });
-  } catch(e) { return null; }
-}
 
 async function saveVersionSnapshot(data) {
+  if (!_currentProjectId) return;
   const now  = new Date();
   const pad  = n => String(n).padStart(2, '0');
   const ts   = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
   const name = `${ts}_${_currentFileName || '프로젝트'}`;
-
-  if (_storageMode === 'drive-api') {
-    if (!_currentFileName) return;
-    try {
-      const vFolderId = await _driveGetVersionFolder();
-      await driveWriteFile(name, data, null, vFolderId);
-      await _drivePruneVersions(vFolderId);
-    } catch(e) { console.warn('Drive 버전 스냅샷 저장 오류:', e); }
-    return;
-  }
-
-  // 로컬 모드
-  const dir = await _getVersionsDir(true);
-  if (!dir) return;
-  try {
-    const fh = await dir.getFileHandle(name + '.dpre.json', { create: true });
-    const wr = await fh.createWritable();
-    await wr.write(JSON.stringify(data, null, 2));
-    await wr.close();
-    await pruneOldVersions(dir);
-  } catch(e) { console.warn('버전 스냅샷 저장 오류:', e); }
-}
-
-async function pruneOldVersions(dir) {
-  if (!_currentFileName) return;
-  const suffix = `_${_currentFileName}.dpre.json`;
-  const entries = [];
-  for await (const [name] of dir.entries()) {
-    // 현재 프로젝트의 버전 파일만 정리 (다른 프로젝트 파일은 건드리지 않음)
-    if (name.endsWith(suffix)) entries.push(name);
-  }
-  entries.sort().reverse(); // 최신순
-  for (const name of entries.slice(VERSION_MAX)) {
-    try { await dir.removeEntry(name); } catch(e) {}
-  }
+  await fsStoreSaveVersion(name, data);
 }
 
 async function loadVersionList() {
-  if (!_currentFileName) return [];
-
-  if (_storageMode === 'drive-api') {
-    try {
-      const vFolderId = await _driveGetVersionFolder().catch(() => null);
-      if (!vFolderId) return [];
-      const suffix = `_${_currentFileName}.dpre.json`;
-      const q = `'${vFolderId}' in parents and name contains "${_currentFileName}" and trashed=false`;
-      const res = await _driveReq('GET',
-        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&orderBy=name%20desc`);
-      const { files } = await res.json();
-      return (files || []).filter(f => f.name.endsWith(suffix)).map(f => ({ name: f.name, id: f.id }));
-    } catch(e) { return []; }
-  }
-
-  // 로컬 모드
-  const dir = await _getVersionsDir(false);
-  if (!dir) return [];
-  const entries = [];
-  const suffix  = `_${_currentFileName}.dpre.json`;
-  try {
-    for await (const [name] of dir.entries()) {
-      if (name.endsWith(suffix)) entries.push({ name, id: null });
-    }
-  } catch(e) { return []; }
-  return entries.sort((a,b) => b.name.localeCompare(a.name)); // 최신순
+  return await fsStoreListVersions();
 }
 
-async function restoreVersion(fileNameOrIdx) {
-  // fileNameOrIdx: 로컬 모드 = 파일명(string), Drive 모드 = 버전 목록 인덱스(number)
+
+async function restoreVersion(versionId) {
   if (!confirm(`이 버전으로 복구하시겠습니까?\n현재 작업 내용은 덮어씌워집니다.`)) return;
   try {
-    let data;
-    if (_storageMode === 'drive-api') {
-      const list = await loadVersionList();
-      const item = typeof fileNameOrIdx === 'number' ? list[fileNameOrIdx] : list.find(v => v.name === fileNameOrIdx);
-      if (!item) { alert('버전 파일을 찾을 수 없습니다.'); return; }
-      data = await driveReadFile(item.id);
-    } else {
-      const fileName = typeof fileNameOrIdx === 'object' ? fileNameOrIdx.name : fileNameOrIdx;
-      const dir = await _getVersionsDir(false);
-      if (!dir) { alert('버전 폴더를 찾을 수 없습니다.'); return; }
-      const fh = await dir.getFileHandle(fileName);
-      data = JSON.parse(await (await fh.getFile()).text());
-    }
+    const data = await fsStoreLoadVersion(versionId);
     await applyLoadedData(data);
     await doSave();
-    alert('복구 완료되었습니다.');
+    showToast('복구 완료되었습니다.');
     refreshSettingsTab();
   } catch(e) {
     alert('복구 중 오류가 발생했습니다: ' + e.message);
   }
 }
 
+
 async function renderVersionHistory() {
   const el = document.getElementById('versionHistoryList');
   if (!el) return;
-  const hasSource = _storageMode === 'drive-api' ? !!_currentFileName : !!(_folderHandle && _currentFileName);
-  if (!hasSource) {
+  if (!_currentProjectId) {
     el.innerHTML = '<div class="stg-version-empty">프로젝트를 열면 버전 목록이 표시됩니다.</div>';
     return;
   }
@@ -6868,40 +6181,18 @@ async function renderVersionHistory() {
     el.innerHTML = '<div class="stg-version-empty">저장된 버전이 없습니다. (10번 저장마다 자동 생성)</div>';
     return;
   }
-  el.innerHTML = list.map((item, i) => {
-    const name = typeof item === 'object' ? item.name : item;
-    // 파일명: 20260520_1430_프로젝트명.dpre.json → "2026-05-20 14:30"
+  el.innerHTML = list.map((item) => {
+    const name = item.name || '';
     const m = name.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})_/);
     const label = m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}` : name;
     return `<div class="stg-version-item">
       <span class="stg-version-label">${label}</span>
-      <button class="stg-version-restore-btn" onclick="restoreVersion(${_storageMode === 'drive-api' ? i : `'${name}'`})">복구</button>
+      <button class="stg-version-restore-btn" onclick="restoreVersion('${item.id}')">복구</button>
     </div>`;
   }).join('');
 }
 
-// ── 경로 표시 업데이트 ──────────────────────────
-function _updateFolderPathDisplay() {
-  const pathEl = document.getElementById('projectsSavePath');
-  if (!pathEl) return;
 
-  if (_storageMode === 'drive-api') {
-    const driveIcon = `<svg width="13" height="13" viewBox="0 0 87.3 78" style="vertical-align:-2px;margin-right:5px"><path fill="#0066DA" d="M6.6 66.85l3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3L27.5 53H0c0 1.55.4 3.1 1.2 4.5z"/><path fill="#00AC47" d="M43.65 25L29.9 0c-1.35.8-2.5 1.9-3.3 3.3L1.2 48.5A9.13 9.13 0 0 0 0 53h27.5z"/><path fill="#EA4335" d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5H60l5.55 10.85z"/><path fill="#00832D" d="M43.65 25L57.4 0c-1.35-.8-2.95-1.2-4.5-1.2H34.4c-1.55 0-3.1.45-4.5 1.2z"/><path fill="#2684FC" d="M59.8 53H27.5L13.75 76.8c1.4.8 2.95 1.2 4.5 1.2h50.85c1.55 0 3.1-.45 4.5-1.2z"/><path fill="#FFBA00" d="M73.4 26.5l-12.25-21.2c-.8-1.4-1.95-2.5-3.3-3.3L43.65 25 59.8 53h27.45c0-1.55-.4-3.1-1.2-4.5z"/></svg>`;
-    pathEl.innerHTML = `${driveIcon}<strong>Google Drive — Don't Panic Pre 폴더</strong>`;
-    pathEl.style.cursor = 'default';
-    pathEl.onclick = null;
-    return;
-  }
-
-  const folderIcon = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:5px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
-  if (_folderHandle) {
-    pathEl.innerHTML = `${folderIcon}<strong>${_folderHandle.name}</strong><span style="opacity:.5;margin-left:4px;font-size:10px">클릭해서 변경</span>`;
-  } else {
-    pathEl.innerHTML = `${folderIcon}<span style="opacity:.65">저장 폴더를 선택해주세요 →</span>`;
-  }
-  pathEl.style.cursor = 'pointer';
-  pathEl.onclick = pickProjectFolder;
-}
 
 // ── 프로젝트 목록 UI ────────────────────────────
 async function showProjectsOverlay() {
@@ -6910,7 +6201,6 @@ async function showProjectsOverlay() {
   if (!overlay) return;
   overlay.classList.remove('hidden');
 
-  // 사용자명
   const u = auth.currentUser;
   const nameEl = document.getElementById('projectsUserName');
   if (nameEl) {
@@ -6918,125 +6208,36 @@ async function showProjectsOverlay() {
     nameEl.textContent = name ? `안녕하세요, ${name}님` : '';
   }
 
-  // 버튼/힌트 전환: Drive vs 로컬
-  const secBtn = document.getElementById('projSecondaryBtn');
-  const collabHint = document.getElementById('projectsCollabHint');
-  if (_storageMode === 'drive-api') {
-    if (secBtn) { secBtn.textContent = '🔄 목록 새로고침'; secBtn.onclick = () => showProjectsOverlay(); }
-    if (collabHint) collabHint.style.display = 'none';
-  } else {
-    if (secBtn) { secBtn.textContent = '📂 프로젝트 폴더 열기'; secBtn.onclick = pickOtherProjectFolder; }
-    if (collabHint) collabHint.style.display = '';
-  }
-
-  // Drive-API 모드: Drive에서 파일 목록 불러오기
-  if (_storageMode === 'drive-api') {
-    const titleEl = document.getElementById('folderBrowseTitle');
-    const listEl  = document.getElementById('folderBrowseList');
-    const section = document.getElementById('folderBrowseSection');
-    if (titleEl) titleEl.innerHTML = '<span>Google Drive 프로젝트</span>';
-    if (listEl)  listEl.innerHTML  = '<div style="opacity:.5;padding:8px;font-size:12px">불러오는 중...</div>';
-    if (section) section.style.display = 'block';
-    try {
-      const files = await driveListProjects();
-      _driveProjectFiles = files;
-      _renderDriveProjectList(files);
-    } catch(e) {
-      if (listEl) listEl.innerHTML = `<div style="opacity:.6;padding:8px;font-size:12px">Drive 연결 오류: ${e.message}</div>`;
-    }
-    renderRecentProjects();
-    return;
-  }
-
-  // 로컬 모드: 기존 폴더 핸들 복원
-  if (!_folderHandle) {
-    try {
-      const h = await idbGetFolderHandle();
-      if (h) _folderHandle = h;
-    } catch(e) {}
-  }
-  if (!_folderParentName) {
-    try {
-      const idb = await _idbOpen();
-      const v = await new Promise((res, rej) => {
-        const tx = idb.transaction('handles', 'readonly');
-        const req = tx.objectStore('handles').get('parentName');
-        req.onsuccess = () => res(req.result || null);
-        req.onerror = rej;
-      });
-      if (v) _folderParentName = v;
-    } catch(e) {}
-  }
-
-  renderRecentProjects();
-
-  const bHandle = _showFolderBrowseModal._handle;
-  const bFiles  = _showFolderBrowseModal._files;
-  if (bHandle && bFiles) {
-    const section = document.getElementById('folderBrowseSection');
-    const titleEl = document.getElementById('folderBrowseTitle');
-    const listEl  = document.getElementById('folderBrowseList');
-    if (titleEl) titleEl.innerHTML = _folderBrowseTitleHTML(bHandle);
-    if (listEl) {
-      listEl.className = bFiles.length > 3 ? 'folder-browse-scroll' : '';
-      listEl.innerHTML = bFiles.length
-        ? bFiles.map((f, i) => {
-            const name = _projectBaseName(f.name);
-            return `<div class="folder-browse-item" onclick="openBrowsedProject(${i})">
-              <span class="fbi-icon">📄</span>
-              <span class="fbi-name">${esc(name)}</span>
-            </div>`;
-          }).join('')
-        : '<div style="text-align:center;padding:12px;font-size:12px;opacity:.55">이 폴더에 프로젝트(.json)가 없습니다.</div>';
-    }
-    if (section) section.style.display = 'block';
-  } else if (_folderHandle) {
-    try {
-      const perm = await _folderHandle.queryPermission({ mode: 'readwrite' });
-      if (perm === 'granted') {
-        await _showFolderBrowseModal(_folderHandle, { scroll: false });
-      }
-    } catch(e) {}
-  }
-}
-
-async function openFirestoreProject() {
-  document.getElementById('projectsOverlay')?.classList.add('hidden');
-  switchTab('editor', document.querySelector('.nav-btn'));
+  const listEl  = document.getElementById('folderBrowseList');
+  const section = document.getElementById('folderBrowseSection');
+  if (listEl)  listEl.innerHTML = '<div style="opacity:.5;padding:8px;font-size:12px">불러오는 중...</div>';
+  if (section) section.style.display = 'block';
   try {
-    await load();
-    refreshTypeUI();
-    checkEditorEmpty();
+    const projects = await fsStoreListProjects();
+    _renderFsProjectList(projects);
   } catch(e) {
-    console.error('Firestore 프로젝트 열기 오류:', e);
+    if (listEl) listEl.innerHTML = `<div style="opacity:.6;padding:8px;font-size:12px">불러오기 오류: ${e.message}</div>`;
   }
+  renderRecentProjects();
 }
+
+
 
 // ── 새 프로젝트 모달 ──────────────────────────────
 function showNewProjectModal() {
   const pathEl = document.getElementById('newProjectSavePath');
   if (pathEl) {
-    if (_storageMode === 'drive-api') {
-      const driveIcon = `<svg width="13" height="13" viewBox="0 0 87.3 78" style="vertical-align:-2px;margin-right:5px"><path fill="#0066DA" d="M6.6 66.85l3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3L27.5 53H0c0 1.55.4 3.1 1.2 4.5z"/><path fill="#00AC47" d="M43.65 25L29.9 0c-1.35.8-2.5 1.9-3.3 3.3L1.2 48.5A9.13 9.13 0 0 0 0 53h27.5z"/><path fill="#EA4335" d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5H60l5.55 10.85z"/><path fill="#00832D" d="M43.65 25L57.4 0c-1.35-.8-2.95-1.2-4.5-1.2H34.4c-1.55 0-3.1.45-4.5 1.2z"/><path fill="#2684FC" d="M59.8 53H27.5L13.75 76.8c1.4.8 2.95 1.2 4.5 1.2h50.85c1.55 0 3.1-.45 4.5-1.2z"/><path fill="#FFBA00" d="M73.4 26.5l-12.25-21.2c-.8-1.4-1.95-2.5-3.3-3.3L43.65 25 59.8 53h27.45c0-1.55-.4-3.1-1.2-4.5z"/></svg>`;
-      pathEl.innerHTML = `${driveIcon}<strong>Google Drive — Don't Panic Pre 폴더</strong>`;
-      pathEl.style.cursor = 'default';
-      pathEl.onclick = null;
-    } else {
-      const folderIcon = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:5px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
-      if (_folderHandle) {
-        pathEl.innerHTML = `${folderIcon}<strong>${_folderHandle.name}</strong>`;
-      } else {
-        pathEl.innerHTML = `${folderIcon}<span style="opacity:.65">폴더 미선택 — 클릭해서 선택</span>`;
-      }
-      pathEl.style.cursor = 'pointer';
-      pathEl.onclick = async () => { await pickProjectFolder(); showNewProjectModal(); };
-    }
+    const fbIcon = `<svg width="13" height="13" viewBox="0 0 192 192" style="vertical-align:-2px;margin-right:5px"><path fill="#FFA000" d="M108.5 36.5l-50 86.7H0L50 36.5z"/><path fill="#F57F17" d="M108.5 36.5l50 86.7H58.5z"/><path fill="#FFCA28" d="M0 123.2l50 32.3 50-32.3-50-86.7z"/><path fill="#FFA000" d="M50 155.5l50-32.3h92l-92 32.3z"/><path fill="#F57F17" d="M142 123.2l-92 32.3 50-86.7z"/></svg>`;
+    pathEl.innerHTML = `${fbIcon}<strong>Firebase에 저장됩니다</strong>`;
+    pathEl.style.cursor = 'default';
+    pathEl.onclick = null;
   }
   const input = document.getElementById('newProjectNameInput');
   if (input) input.value = '';
   document.getElementById('newProjectModal')?.classList.remove('hidden');
   setTimeout(() => input?.focus(), 80);
 }
+
 
 function closeNewProjectModal() {
   document.getElementById('newProjectModal')?.classList.add('hidden');
@@ -7045,18 +6246,12 @@ function closeNewProjectModal() {
 async function confirmNewProject() {
   const name = document.getElementById('newProjectNameInput')?.value.trim() || '새 프로젝트';
 
-  // 로컬 모드: 폴더 미선택이면 먼저 선택
-  if (_storageMode !== 'drive-api' && !_folderHandle) {
-    await pickProjectFolder();
-    if (!_folderHandle) return;
-  }
 
   closeNewProjectModal();
   document.getElementById('projectsOverlay')?.classList.add('hidden');
 
   _currentFileName   = name;
-  _currentFileHandle = null;
-  _driveFileId       = null; // Drive 모드: 첫 doSave()에서 새 파일 생성
+  _currentProjectId = null;
   _dataLoaded = false;
 
   switchTab('editor', document.querySelector('.nav-btn'));
@@ -7079,11 +6274,7 @@ async function confirmNewProject() {
   updatePageBreaks();
 
   await doSave();
-  if (_storageMode === 'drive-api') {
-    if (_driveFileId) addRecentProject(name, 'Google Drive', null, _driveFileId);
-  } else {
-    if (_folderHandle) addRecentProject(name, _folderHandle.name, _folderParentName);
-  }
+  addRecentProject(name, _currentProjectId);
 }
 
 // load()에서 Drive 데이터 적용 시 공통 함수
@@ -7141,15 +6332,14 @@ async function applyLoadedData(d) {
 
   // 오늘 날짜 스냅샷이 없으면 프로젝트 열 때 즉시 1회 백업
   setTimeout(async () => {
-    const hasSource = _storageMode === 'drive-api' ? !!_currentFileName : !!(_folderHandle && _currentFileName);
-    if (!hasSource) return;
+    if (!_currentProjectId) return;
     try {
       const today = new Date();
       const pad = n => String(n).padStart(2, '0');
       const todayPrefix = `${today.getFullYear()}${pad(today.getMonth()+1)}${pad(today.getDate())}`;
       const list = await loadVersionList();
       const hasToday = list.some(item => {
-        const n = typeof item === 'object' ? item.name : item;
+        const n = item.name || '';
         return n.startsWith(todayPrefix);
       });
       if (!hasToday) {
@@ -7189,10 +6379,10 @@ function _makeFileKey(folderName, fileName) {
 
 async function presenceJoin() {
   const user = auth.currentUser;
-  if (!user || !_folderHandle || !_currentFileName) return;
+  if (!user || !_currentProjectId) return;
   await presenceLeave(); // 이전 리스너 정리
 
-  _presenceFileKey  = _makeFileKey(_folderHandle.name, _currentFileName);
+  _presenceFileKey  = _currentProjectId;
   _conflictWarned   = false;
   const emoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
   const name  = getProfileName();

@@ -7,6 +7,14 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 
+    // 프로젝트: 본인만 읽기/쓰기
+    match /users/{uid}/projects/{projectId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    match /users/{uid}/projects/{projectId}/versions/{versionId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
     // 접속자 표시(Presence): 로그인한 사용자 누구나 읽기/쓰기
     match /presence/{docId} {
       allow read, write: if request.auth != null;

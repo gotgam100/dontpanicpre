@@ -11,7 +11,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://apis.google.com/js/api.js" async></script>
-<link rel="stylesheet" href="assets/app.css?v=20260520-chat">
+<link rel="stylesheet" href="assets/app.css?v=20260521-folder-settings">
 <link rel="stylesheet" href="assets/responsive.css">
 
 <!-- Theme init: apply before paint to avoid flash -->
@@ -48,7 +48,7 @@
 <div id="loginOverlay" class="hidden">
   <div class="login-box">
     <div class="login-logo"><span style="color:#fbbf24">Don't Panic</span> <span style="color:var(--text)">Pre</span></div>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:24px;text-align:center;line-height:1.6">
+    <p style="font-size:15px;color:var(--text-dim);margin-bottom:24px;text-align:center;line-height:1.6">
       Google 계정으로 로그인하세요
     </p>
     <button class="auth-google-btn" onclick="googleLogin()">
@@ -57,57 +57,6 @@
     </button>
     <div class="login-loading" id="authLoading" style="display:none">⏳ 처리 중...</div>
     <div class="login-error" id="authLoginError"></div>
-  </div>
-</div>
-
-<!-- ══════════ 저장소 선택 (최초 1회) ══════════ -->
-<div id="storageSetupOverlay" class="hidden">
-  <div class="storage-setup-box">
-    <div class="storage-setup-logo"><span style="color:#fbbf24">Don't Panic</span> Pre</div>
-    <div class="storage-setup-title">프로젝트를 어디에 저장할까요?</div>
-    <div class="storage-setup-subtitle">이후에도 설정에서 변경할 수 있습니다.</div>
-    <div class="storage-setup-cards">
-
-      <!-- Google Drive 카드 (모든 기기에서 표시) -->
-      <div class="storage-card" onclick="chooseStorage('drive-api')">
-        <div class="storage-card-top">
-          <div class="storage-card-icon">
-            <svg width="28" height="28" viewBox="0 0 87.3 78"><path fill="#0066DA" d="M6.6 66.85l3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3L27.5 53H0c0 1.55.4 3.1 1.2 4.5z"/><path fill="#00AC47" d="M43.65 25L29.9 0c-1.35.8-2.5 1.9-3.3 3.3L1.2 48.5A9.13 9.13 0 0 0 0 53h27.5z"/><path fill="#EA4335" d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5H60l5.55 10.85z"/><path fill="#00832D" d="M43.65 25L57.4 0c-1.35-.8-2.95-1.2-4.5-1.2H34.4c-1.55 0-3.1.45-4.5 1.2z"/><path fill="#2684FC" d="M59.8 53H27.5L13.75 76.8c1.4.8 2.95 1.2 4.5 1.2h50.85c1.55 0 3.1-.45 4.5-1.2z"/><path fill="#FFBA00" d="M73.4 26.5l-12.25-21.2c-.8-1.4-1.95-2.5-3.3-3.3L43.65 25 59.8 53h27.45c0-1.55-.4-3.1-1.2-4.5z"/></svg>
-          </div>
-          <div class="storage-card-info">
-            <div class="storage-card-name">Google Drive</div>
-            <div class="storage-card-badge collab">📱 모든 기기 사용 가능</div>
-          </div>
-        </div>
-        <ul class="storage-card-desc">
-          <li>프로젝트가 내 Google Drive에 파일로 저장됩니다</li>
-          <li>데스크탑, 아이패드, 아이폰 어디서나 접근 가능</li>
-          <li>Drive에서 팀원에게 파일을 공유하면 함께 편집할 수 있습니다</li>
-        </ul>
-        <div class="storage-card-note">인터넷 연결 필요 · 저장 속도 다소 느림</div>
-      </div>
-
-      <!-- 로컬 폴더 카드 (iOS에서 자동 숨김) -->
-      <div class="storage-card" id="storageLocalCard" onclick="chooseStorage('local')">
-        <div class="storage-card-top">
-          <div class="storage-card-icon">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 7h10M7 11h6"/></svg>
-          </div>
-          <div class="storage-card-info">
-            <div class="storage-card-name">내 컴퓨터에 저장</div>
-            <div class="storage-card-badge solo">🖥️ 데스크탑 전용</div>
-          </div>
-        </div>
-        <ul class="storage-card-desc">
-          <li>내 컴퓨터의 원하는 폴더에 직접 파일로 저장됩니다</li>
-          <li>빠른 저장 · 오프라인에서도 작동</li>
-          <li>Google Drive 동기화 폴더 안에 두면 자동 백업 가능</li>
-        </ul>
-        <div class="storage-card-note">데스크탑 Chrome / Edge / Safari 전용</div>
-      </div>
-
-    </div>
-    <div class="storage-setup-footer" style="display:none"></div>
   </div>
 </div>
 
@@ -141,23 +90,10 @@
 
     <div class="projects-action-list" id="projectsActionList">
       <button class="proj-btn proj-btn-primary" onclick="showNewProjectModal()">＋ 새 프로젝트</button>
-      <!-- 로컬 모드: 폴더 열기 버튼 / Drive 모드: 새로고침 버튼 (JS로 전환) -->
-      <button class="proj-btn proj-btn-secondary" id="projSecondaryBtn" onclick="pickOtherProjectFolder()">📂 프로젝트 폴더 열기</button>
-    </div>
-
-    <!-- 저장소 변경 링크 -->
-    <div style="text-align:center;margin-top:4px;margin-bottom:2px">
-      <button class="login-btn-ghost" style="font-size:11px;opacity:.55" onclick="resetStorageChoice()">저장 위치 변경</button>
-    </div>
-
-    <!-- 협업 안내 박스 (로컬 모드에서만 표시) -->
-    <div class="projects-collab-hint" id="projectsCollabHint">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-      구글 드라이브를 이용하여 다른 사람과 프로젝트를 공유할 수 있습니다. 내 컴퓨터의 구글 드라이브 동기화 폴더 안에 폴더를 만들어 지정하세요.
     </div>
 
     <div id="folderBrowseSection" class="projects-browse-section" style="display:none">
-      <div class="projects-section-label" id="folderBrowseTitle">폴더의 프로젝트</div>
+      <div class="projects-section-label">내 프로젝트</div>
       <div id="folderBrowseList"></div>
     </div>
 
@@ -167,7 +103,7 @@
     </div>
 
     <div class="projects-footer">
-      <button class="projects-logout-btn" onclick="logout()">🚪 로그아웃</button>
+      <button class="projects-logout-btn" onclick="logout()">로그아웃</button>
     </div>
   </div>
 </div>
