@@ -11,7 +11,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://apis.google.com/js/api.js" async></script>
-<link rel="stylesheet" href="assets/app.css?v=20260520-insert-heading">
+<link rel="stylesheet" href="assets/app.css?v=20260520-home-redesign">
 <link rel="stylesheet" href="assets/responsive.css">
 
 <!-- Theme init: apply before paint to avoid flash -->
@@ -49,18 +49,13 @@
   <div class="login-box">
     <div class="login-logo"><span style="color:#fbbf24">Don't Panic</span> <span style="color:var(--text)">Pre</span></div>
 
-    <!-- Drive 모드 안내 -->
-    <div id="loginDriveHint" class="login-drive-hint" style="display:none">
-      Google 계정으로 로그인하면<br>Google Drive에 저장이 시작됩니다.
-    </div>
-
     <!-- Google 로그인 -->
     <button class="auth-google-btn" onclick="googleLogin()">
       <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
       Google 계정으로 로그인
     </button>
 
-    <!-- 이메일 로그인 섹션 (개인저장 모드에서만 표시) -->
+    <!-- 이메일 로그인 섹션 -->
     <div id="authEmailSection">
       <div class="auth-or-divider"><span>또는</span></div>
       <div class="login-tabs">
@@ -89,7 +84,6 @@
     </div>
 
     <div class="login-loading" id="authLoading" style="display:none">⏳ 처리 중...</div>
-    <button class="login-change-storage" onclick="resetStorageChoice()">← 저장 방식 변경</button>
   </div>
 </div>
 
@@ -162,25 +156,35 @@
   </div>
 </div>
 
-<!-- ══════════ 프로젝트 목록 화면 ══════════ -->
+<!-- ══════════ 프로젝트 목록 화면 (홈) ══════════ -->
 <div id="projectsOverlay" class="hidden">
   <div class="projects-title-area">
     <div class="projects-title"><span style="color:#fbbf24">Don't Panic</span> Pre</div>
   </div>
   <div class="projects-box">
     <div id="projectsUserName" class="projects-username"></div>
+
     <div class="projects-action-list">
-      <button class="proj-btn proj-btn-primary" onclick="showNewProjectModal()">＋ 새 프로젝트 만들기</button>
+      <button class="proj-btn proj-btn-primary" onclick="showNewProjectModal()">＋ 새 프로젝트 폴더 만들기</button>
       <button class="proj-btn proj-btn-secondary" onclick="pickOtherProjectFolder()">📂 프로젝트 폴더 열기</button>
     </div>
+
+    <!-- 협업 안내 박스 -->
+    <div class="projects-collab-hint">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+      구글 드라이브를 이용하여 다른 사람과 프로젝트를 공유할 수 있습니다. 내 컴퓨터의 구글 드라이브 동기화 폴더 안에 폴더를 만들어 지정하세요.
+    </div>
+
     <div id="folderBrowseSection" class="projects-browse-section" style="display:none">
       <div class="projects-section-label" id="folderBrowseTitle">폴더의 프로젝트</div>
       <div id="folderBrowseList"></div>
     </div>
+
     <div class="projects-recent-section">
       <div class="projects-section-label">최근 열어 본 프로젝트</div>
       <div id="recentProjectsList"></div>
     </div>
+
     <div class="projects-footer">
       <button class="projects-logout-btn" onclick="logout()">🚪 로그아웃</button>
     </div>
@@ -686,7 +690,7 @@
   </div>
 </div>
 
-<script src="assets/app.js?v=20260520-collab" defer></script>
+<script src="assets/app.js?v=20260520-home-redesign" defer></script>
 <script src="assets/responsive.js?v=20260519-json-folder" defer></script>
 
 <!-- ═══ 하단 탭바 (모바일 전용) ═══ -->

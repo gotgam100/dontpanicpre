@@ -99,19 +99,10 @@ auth.onAuthStateChanged(async user => {
     showProjectsOverlay();
 
   } else {
-    // 미로그인: 진입 화면 결정
+    // 미로그인: 로그인 화면으로 바로 이동
     document.getElementById('projectsOverlay')?.classList.add('hidden');
-    document.getElementById('loginOverlay')?.classList.add('hidden');
     document.getElementById('storageSetupOverlay')?.classList.add('hidden');
-
-    const choice = localStorage.getItem('dpre-storage-chosen');
-    if (!choice) {
-      // 최초 진입 — 저장소 선택 화면
-      document.getElementById('storageSetupOverlay')?.classList.remove('hidden');
-    } else {
-      // 재방문 — 로그인 화면 (저장 방식에 맞게 UI 조정)
-      showLoginOverlay(choice);
-    }
+    document.getElementById('loginOverlay')?.classList.remove('hidden');
   }
 });
 
@@ -6199,7 +6190,7 @@ function addRecentProject(name, folderName, parentName) {
 function renderRecentProjects() {
   const el = document.getElementById('recentProjectsList');
   if (!el) return;
-  const list = getRecentProjects();
+  const list = getRecentProjects().slice(0, 3); // 최대 3개만 표시
   if (!list.length) {
     el.innerHTML = '<div class="recent-empty">아직 열어 본 프로젝트가 없습니다.</div>';
     return;
@@ -6625,7 +6616,7 @@ async function showProjectsOverlay() {
   const nameEl = document.getElementById('projectsUserName');
   if (nameEl) {
     const name = (u?.displayName || u?.email || '').split('@')[0];
-    nameEl.textContent = name ? `안녕하세요. ${name}` : '';
+    nameEl.textContent = name ? `안녕하세요, ${name}님` : '';
   }
 
   // IndexedDB에서 폴더 핸들 복원 (권한 확인은 사용자 클릭 시 수행)
