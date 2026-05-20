@@ -1490,7 +1490,8 @@ kbd {
   transition: transform .15s;
 }
 .presence-chip:hover { transform: scale(1.15); }
-.presence-chip-me { opacity: .45; }
+.presence-chip-me { opacity: 1; }
+.presence-chip:not(.presence-chip-me) { opacity: .4; }
 
 /* ══ 토스트 ══ */
 #dpToast {
