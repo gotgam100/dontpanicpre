@@ -834,6 +834,11 @@ function updatePageBreaks() {
   if (!layer || !editor) return;
   const totalH   = editor.scrollHeight;
   const totalPages = Math.max(1, Math.ceil(totalH / A4_PAGE_H));
+  // 마지막 페이지가 항상 꽉 찬 1페이지로 보이도록 min-height 강제
+  const targetMinH = totalPages * A4_PAGE_H;
+  if (editor.style.minHeight !== targetMinH + 'px') {
+    editor.style.minHeight = targetMinH + 'px';
+  }
   let html = '';
   if (pageNumberStyle) {
     for (let page = 1; page <= totalPages; page++) {
