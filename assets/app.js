@@ -6300,6 +6300,11 @@ async function openRecentProject(idx) {
 
   // ── 3차: 폴더 직접 선택 (confirm 클릭이 새 user gesture) ──
   resetEl();
+  if (!window.showDirectoryPicker) {
+    showToast('폴더 선택은 Android Chrome 또는 데스크탑 Chrome/Edge에서 지원됩니다.', 3500);
+    removeRecentProject(idx);
+    return;
+  }
   if (!confirm(`"${p.name}" 프로젝트 파일을 찾을 수 없습니다.\n저장된 폴더를 선택해 주세요.`)) {
     removeRecentProject(idx);
     return;
@@ -6340,7 +6345,7 @@ function _alertFolderPickerError(e) {
     return;
   }
   if (e.name === 'TypeError') {
-    alert('현재 브라우저/환경에서 폴더 선택 API 동작이 제한됩니다.\n최신 Chrome 또는 Edge에서 다시 시도해주세요.');
+    showToast('폴더 선택 API가 이 환경에서 제한됩니다. Android Chrome 또는 데스크탑 Chrome/Edge를 사용해주세요.', 4000);
     return;
   }
   alert(`폴더 선택 중 오류가 발생했습니다.\n(${e.name || 'Error'})`);
@@ -6383,7 +6388,7 @@ function _showFolderPickerGuide(onConfirm) {
 
 async function _doPickFolder() {
   if (!window.showDirectoryPicker) {
-    alert('이 브라우저는 폴더 선택을 지원하지 않습니다.\nChrome 또는 Edge를 사용해주세요.');
+    showToast('폴더 선택은 Android Chrome 또는 데스크탑 Chrome/Edge에서 지원됩니다.\niOS Safari는 현재 지원하지 않습니다.', 4000);
     return;
   }
   if (_pickerActive) return;
@@ -6422,7 +6427,7 @@ async function pickProjectFolder() {
 // ── 파일 열기 (공유/외부 파일) ─────────────────
 async function pickOtherProjectFolder() {
   if (!window.showDirectoryPicker) {
-    alert('이 기능은 Chrome 또는 Edge에서만 작동합니다.\nChrome으로 열어주세요: http://localhost:8080');
+    showToast('폴더 선택은 Android Chrome 또는 데스크탑 Chrome/Edge에서 지원됩니다.\niOS Safari는 현재 지원하지 않습니다.', 4000);
     return;
   }
   if (_pickerActive) return;
