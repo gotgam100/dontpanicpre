@@ -7116,12 +7116,11 @@ function openDM(partnerUid, partnerName, partnerEmoji) {
   _dmPartner = { uid: partnerUid, name: partnerName, emoji: partnerEmoji };
   _dmMode    = true;
 
-  // 헤더 타이틀 교체 (← 버튼 + 이모티콘 + 이름)
+  // 헤더 타이틀 교체 (이모티콘 + 이름)
   document.getElementById('chatGroupDesc')?.classList.add('hidden');
   const titleEl = document.getElementById('chatPanelTitle');
   if (titleEl) titleEl.innerHTML =
-    `<button class="chat-back-btn" onclick="closeDM()" title="공유 채팅방으로 돌아가기">←</button>
-     <span class="chat-dm-title">${partnerEmoji} ${esc(partnerName)}</span>`;
+    `<span class="chat-dm-title">${partnerEmoji} ${esc(partnerName)}</span>`;
 
   // 입력창 placeholder 변경
   const input = document.getElementById('chatInput');

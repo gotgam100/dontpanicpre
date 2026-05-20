@@ -1517,9 +1517,13 @@ kbd {
 
 /* ══ 채팅 패널 ══ */
 .chat-panel {
-  position: fixed; top: 52px; right: 0; bottom: 0;
+  position: fixed; top: 52px; right: 0;
+  height: calc(67vh - 52px);
   width: 280px; background: var(--bg-card, #1a1c2a);
-  border-left: 1px solid var(--border); display: flex; flex-direction: column;
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-bottom-left-radius: 12px;
+  display: flex; flex-direction: column;
   z-index: 400; transition: transform .2s ease;
 }
 .chat-panel.hidden { display: none; }
@@ -1613,12 +1617,6 @@ kbd {
 }
 
 /* ══ DM 타이틀 요소 ══ */
-.chat-back-btn {
-  background: none; border: none; color: var(--text-dim); font-size: 14px;
-  cursor: pointer; padding: 0 4px 0 0; line-height: 1;
-  transition: color .1s; flex-shrink: 0;
-}
-.chat-back-btn:hover { color: var(--text); }
 .chat-dm-title {
   font-size: 13px; font-weight: 700; color: var(--text);
 }
