@@ -1651,6 +1651,21 @@ kbd {
   margin: 0 0 18px;
 }
 .myinfo-profile-meta { margin-bottom: 0; }
+
+/* 이모티콘 아바타 래퍼 */
+.myinfo-avatar-wrap {
+  position: relative; flex-shrink: 0; cursor: pointer;
+  width: 48px; height: 48px;
+}
+.myinfo-avatar-wrap:hover .myinfo-avatar-preview { opacity: .7; }
+.myinfo-avatar-wrap:hover .myinfo-avatar-edit-badge { opacity: 1; }
+.myinfo-avatar-edit-badge {
+  position: absolute; bottom: -2px; right: -4px;
+  font-size: 11px; line-height: 1;
+  opacity: 0; transition: opacity .15s;
+  pointer-events: none;
+}
+
 .myinfo-profile-name {
   font-size: 18px; font-weight: 800; color: var(--text);
   line-height: 1.35;
@@ -1664,9 +1679,35 @@ kbd {
   background: transparent; border: none;
   display: flex; align-items: center; justify-content: center;
   font-size: 26px; font-weight: 400; color: inherit;
-  flex-shrink: 0; cursor: pointer; transition: opacity .15s;
+  transition: opacity .15s;
 }
-.myinfo-avatar-preview:hover { opacity: .75; }
+
+/* 이름 행 */
+.myinfo-name-row {
+  display: inline-flex; align-items: center; gap: 5px;
+  cursor: pointer; border-radius: 6px;
+  padding: 1px 4px 1px 0; transition: background .15s;
+}
+.myinfo-name-row:hover { background: var(--surface2); }
+.myinfo-name-row:hover .myinfo-name-edit-icon { opacity: 1; }
+.myinfo-name-edit-icon {
+  font-size: 12px; opacity: 0; transition: opacity .15s;
+  flex-shrink: 0;
+}
+/* 이름 인라인 편집 입력 */
+.myinfo-name-input {
+  font-size: 18px; font-weight: 800; color: var(--text);
+  background: var(--surface2); border: 1.5px solid var(--accent);
+  border-radius: 6px; padding: 2px 8px; outline: none;
+  font-family: inherit; line-height: 1.35; width: 160px;
+  transition: box-shadow .15s;
+}
+.myinfo-name-input:focus { box-shadow: 0 0 0 2px var(--accent-glow); }
+/* 수정 안내 힌트 */
+.myinfo-edit-hint {
+  font-size: 11px; color: var(--text-dim); opacity: .55;
+  padding-top: 5px; line-height: 1.4;
+}
 .myinfo-emoji-clear-btn {
   font-size: 12px; color: var(--text-dim); background: none;
   border: 1px solid var(--border); border-radius: 6px;

@@ -644,13 +644,22 @@
 
       <div class="myinfo-profile-title">내 프로필</div>
       <div class="myinfo-profile-row">
-        <div class="myinfo-avatar-preview" id="myInfoAvatarPreview" onclick="toggleEmojiPicker()" title="클릭해서 이모티콘 변경"></div>
+        <!-- 이모티콘 아바타 -->
+        <div class="myinfo-avatar-wrap" onclick="toggleEmojiPicker()" title="클릭해서 이모티콘 변경">
+          <div class="myinfo-avatar-preview" id="myInfoAvatarPreview"></div>
+          <div class="myinfo-avatar-edit-badge">✏️</div>
+        </div>
         <div class="myinfo-emoji-popover" id="myInfoEmojiPopover">
           <div class="myinfo-emoji-grid" id="myInfoEmojiGrid"></div>
         </div>
+        <!-- 이름 + 이메일 -->
         <div class="myinfo-profile-meta">
-          <div class="myinfo-profile-name" id="myInfoName">—</div>
+          <div class="myinfo-name-row" id="myInfoNameRow" onclick="startEditName()" title="클릭해서 별명 수정">
+            <span class="myinfo-profile-name" id="myInfoName">—</span>
+            <span class="myinfo-name-edit-icon">✏️</span>
+          </div>
           <div class="myinfo-email-val" id="myInfoEmail">—</div>
+          <div class="myinfo-edit-hint">이모티콘과 별명을 클릭해서 수정할 수 있어요</div>
         </div>
       </div>
 

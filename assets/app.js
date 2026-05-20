@@ -80,8 +80,7 @@ auth.onAuthStateChanged(async user => {
 
     // 사용자 정보 표시
     try {
-      const name     = (user.displayName || user.email || '').split('@')[0] || '사용자';
-      const initials = name[0].toUpperCase();
+      const name  = getProfileName();
       const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
       setEl('myInfoEmail',      user.email || '');
       setEl('myInfoName',       name);
@@ -6868,7 +6867,7 @@ async function presenceJoin() {
   _presenceFileKey  = _makeFileKey(_folderHandle.name, _currentFileName);
   _conflictWarned   = false;
   const emoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
-  const name  = (user.displayName || user.email || '').split('@')[0] || '사용자';
+  const name  = getProfileName();
 
   const docRef = db.collection('presence').doc(_presenceFileKey);
 
@@ -6894,7 +6893,8 @@ async function presenceJoin() {
   _presenceTimer = setInterval(async () => {
     try {
       const currentEmoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
-      await docRef.set({ [user.uid]: { name, emoji: currentEmoji, updatedAt: Date.now() } }, { merge: true });
+      const currentName  = getProfileName();
+      await docRef.set({ [user.uid]: { name: currentName, emoji: currentEmoji, updatedAt: Date.now() } }, { merge: true });
     } catch(e) {}
   }, 30000);
 
@@ -6996,7 +6996,7 @@ async function chatSend() {
   const user  = auth.currentUser;
   if (!user) return;
   const emoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
-  const name  = (user.displayName || user.email || '').split('@')[0] || '사용자';
+  const name  = getProfileName();
   input.value = '';
   try {
     await db.collection('chats').doc(_chatFileKey).collection('messages').add({
@@ -7180,7 +7180,7 @@ async function dmSend() {
   const user = auth.currentUser;
   if (!user) return;
   const emoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
-  const name  = (user.displayName || user.email || '').split('@')[0] || '사용자';
+  const name  = getProfileName();
   input.value = '';
   try {
     await db.collection('dms').doc(_dmKey).collection('messages').add({
@@ -7253,8 +7253,75 @@ function showToast(msg, duration = 3000) {
 function ieBadge(ie){ return{INT:'b-int',EXT:'b-ext','INT/EXT':'b-ie'}[ie]||'b-int'; }
 function timeBadge(t){ return{day:'b-day',night:'b-night',dawn:'b-dawn',eve:'b-eve'}[t]||'b-day'; }
 
-/* ── 프로필 이모지 ──────────────────────────────────── */
+/* ── 프로필 닉네임 + 이모지 ──────────────────────────── */
+const PROFILE_NICK_KEY  = 'dpre-profile-nick';
 const PROFILE_EMOJI_KEY = 'dpre-profile-emoji';
+
+/** 표시 이름: 저장된 닉네임 우선, 없으면 displayName/email */
+function getProfileName() {
+  const saved = localStorage.getItem(PROFILE_NICK_KEY);
+  if (saved) return saved;
+  const user = auth.currentUser;
+  if (!user) return '사용자';
+  return (user.displayName || user.email || '').split('@')[0] || '사용자';
+}
+
+/** 이름 행 클릭 → 인라인 편집 모드 */
+function startEditName() {
+  const row = document.getElementById('myInfoNameRow');
+  if (!row || row.querySelector('.myinfo-name-input')) return; // 이미 편집 중
+  const current = getProfileName();
+
+  // 이름 행을 input으로 교체
+  row.innerHTML = `
+    <input id="myInfoNameInput" class="myinfo-name-input"
+      type="text" maxlength="20" value="${esc(current)}"
+      placeholder="별명 입력" autocomplete="off"
+      onblur="saveProfileName()"
+      onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}
+                 else if(event.key==='Escape'){cancelEditName()}">
+  `;
+  const input = document.getElementById('myInfoNameInput');
+  input?.focus();
+  input?.select();
+}
+
+/** 별명 저장 (blur / Enter) */
+function saveProfileName() {
+  const input = document.getElementById('myInfoNameInput');
+  if (!input) return;
+  const newName = input.value.trim() || getProfileName();
+  localStorage.setItem(PROFILE_NICK_KEY, newName);
+  _restoreNameRow(newName);
+  _syncNameToPresence(newName);
+  // 사이드바 이름도 업데이트
+  document.querySelectorAll('#sidebarUserName,#sidebarPopupName').forEach(el => {
+    if (el) el.textContent = newName;
+  });
+}
+
+/** 별명 편집 취소 (Escape) */
+function cancelEditName() {
+  _restoreNameRow(getProfileName());
+}
+
+function _restoreNameRow(name) {
+  const row = document.getElementById('myInfoNameRow');
+  if (!row) return;
+  row.innerHTML = `
+    <span class="myinfo-profile-name" id="myInfoName">${esc(name)}</span>
+    <span class="myinfo-name-edit-icon">✏️</span>
+  `;
+}
+
+function _syncNameToPresence(name) {
+  const user = auth.currentUser;
+  if (!user || !_presenceFileKey) return;
+  const emoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
+  db.collection('presence').doc(_presenceFileKey)
+    .set({ [user.uid]: { name, emoji, updatedAt: Date.now() } }, { merge: true })
+    .catch(() => {});
+}
 const PROFILE_EMOJIS = [
   '😀','😎','🤩','😇','🥳','🤗','😏','🧐',
   '🐱','🐶','🦊','🐻','🐼','🐨','🐯','🦁',
@@ -7316,7 +7383,7 @@ function selectProfileEmoji(emoji) {
   // Presence 문서의 내 이모지도 즉시 업데이트 → 다른 접속자 화면에도 반영
   const user = auth.currentUser;
   if (user && _presenceFileKey) {
-    const name = (user.displayName || user.email || '').split('@')[0] || '사용자';
+    const name = getProfileName();
     db.collection('presence').doc(_presenceFileKey)
       .set({ [user.uid]: { name, emoji, updatedAt: Date.now() } }, { merge: true })
       .catch(() => {});
