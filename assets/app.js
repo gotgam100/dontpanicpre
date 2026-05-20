@@ -4512,11 +4512,6 @@ function refreshSettingsTab() {
 
   const parts = [];
 
-  parts.push(`<span class="stg-bc-item">${folderIcon}내 컴퓨터</span>`);
-  if (_storageMode === 'drive') {
-    parts.push(`<span class="stg-bc-item">${driveIcon}Google Drive</span>`);
-  }
-
   if (_folderHandle) {
     parts.push(`<span class="stg-bc-item">${folderIcon}${_folderHandle.name}</span>`);
   } else {
@@ -6407,10 +6402,7 @@ async function pickOtherProjectFolder() {
 }
 
 function _folderBrowseTitleHTML(handle) {
-  const prefix = _storageMode === 'drive'
-    ? `<span style="opacity:.55">Google Drive › 내 드라이브 ›</span>`
-    : `<span style="opacity:.55">📁 내 컴퓨터 ›</span>`;
-  return `${prefix} <span style="text-transform:none">${handle.name}</span>`;
+  return `<span style="text-transform:none">📁 ${handle.name}</span>`;
 }
 
 async function _showFolderBrowseModal(handle, options = {}) {
@@ -6691,10 +6683,7 @@ function showNewProjectModal() {
   if (pathEl) {
     const folderIcon = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:5px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
     if (_folderHandle) {
-      const driveSegment = _storageMode === 'drive'
-        ? `<span style="opacity:.5">Google Drive ›</span> `
-        : '';
-      pathEl.innerHTML = `${folderIcon}<span style="opacity:.5">내 컴퓨터 ›</span> ${driveSegment}<strong>${_folderHandle.name}</strong>`;
+      pathEl.innerHTML = `${folderIcon}<strong>${_folderHandle.name}</strong>`;
     } else {
       pathEl.innerHTML = `${folderIcon}<span style="opacity:.65">폴더 미선택 — 클릭해서 선택</span>`;
     }
