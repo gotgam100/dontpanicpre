@@ -6213,11 +6213,17 @@ function renderRecentProjects() {
     return;
   }
   const showList = _recentExpanded ? allList : allList.slice(0, 1);
-  const items = showList.map((p, i) => `
+  const items = showList.map((p, i) => {
+    const dateStr = p.openedAt ? _fmtModified(new Date(p.openedAt).getTime()) : '';
+    return `
     <div class="recent-project-item" onclick="openRecentProject(${i})">
-      <div class="recent-project-name">${esc(p.name)}</div>
+      <div class="recent-project-row">
+        <div class="recent-project-name">${esc(p.name)}</div>
+        ${dateStr ? `<div class="recent-project-date">${dateStr}</div>` : ''}
+      </div>
       <div class="recent-project-path">📁 ${esc(p.folderPath || p.folderName || '')}</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   const moreCount = allList.length - 1;
   const toggleBtn = moreCount > 0
     ? `<button class="recent-toggle-btn" onclick="toggleRecentExpand()">

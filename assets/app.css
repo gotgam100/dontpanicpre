@@ -2122,7 +2122,11 @@ kbd {
   cursor: pointer; transition: background .1s; border: 1px solid transparent;
 }
 .recent-project-item:hover { background: var(--surface2); border-color: var(--border); }
-.recent-project-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.recent-project-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+}
+.recent-project-name { font-size: 13px; font-weight: 600; color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recent-project-date { font-size: 10px; color: var(--text-dim); opacity: .6; white-space: nowrap; flex-shrink: 0; }
 .recent-project-path { font-size: 11px; color: var(--text-dim); opacity: .65; }
 .recent-empty { font-size: 12px; color: var(--text-dim); text-align: center; padding: 24px 0; opacity: .55; }
 /* 폴더 파일 목록 */
