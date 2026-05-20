@@ -6325,7 +6325,11 @@ function _showFolderPickerGuide(onConfirm) {
     <div style="background:var(--bg-card,#1e1e2e);border:1px solid var(--border,#333);border-radius:16px;padding:28px 32px;max-width:380px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.5)">
       <div style="font-size:15px;font-weight:700;margin-bottom:10px">${title}</div>
       ${note}
-      <ol style="font-size:13px;line-height:1.9;opacity:.85;padding-left:18px;margin:0 0 20px">${steps}</ol>
+      <ol style="font-size:13px;line-height:1.9;opacity:.85;padding-left:18px;margin:0 0 14px">${steps}</ol>
+      <div style="display:flex;align-items:flex-start;gap:7px;background:rgba(255,255,255,.05);border-radius:8px;padding:10px 13px;margin-bottom:20px;font-size:11.5px;color:var(--text-dim);line-height:1.6">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;opacity:.7"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+        <span>개인 로컬 작업인 경우, 내 컴퓨터 안에 원하는 폴더를 선택하세요. 추후 폴더를 구글 드라이브로 옮기면 협업도 가능합니다.</span>
+      </div>
       <div style="display:flex;gap:10px;justify-content:flex-end">
         <button id="folderGuideCancel" style="padding:8px 18px;border-radius:8px;border:1px solid var(--border,#444);background:transparent;color:inherit;cursor:pointer;font-size:13px">취소</button>
         <button id="folderGuideConfirm" style="padding:8px 18px;border-radius:8px;border:none;background:var(--accent,#f59e0b);color:#000;cursor:pointer;font-size:13px;font-weight:700">폴더 선택하기</button>
