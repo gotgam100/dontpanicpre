@@ -6919,23 +6919,29 @@ async function presenceLeave() {
 }
 
 function renderPresenceChips(users) {
+  if (users !== _lastPresenceUsers && users.length) _lastPresenceUsers = users; // 캐시 갱신
   const wrap = document.getElementById('presenceChips');
   if (!wrap) return;
-  if (!users.length) { wrap.innerHTML = ''; return; }
+  const list = users.length ? users : _lastPresenceUsers;
+  if (!list.length) { wrap.innerHTML = ''; return; }
   wrap.innerHTML =
     `<span class="presence-label">현재 접속자</span>` +
-    users.map(u => {
+    list.map(u => {
       if (u.isMe) {
         return `<div class="presence-chip presence-chip-me" title="${esc(u.name)}">${u.emoji}</div>`;
       }
-      // 타인: 클릭 시 DM 열기
+      // 타인: DM 안읽음 뱃지 + 클릭 시 DM 열기
+      const unread = _dmUnreadCounts[u.uid] || 0;
+      const badge  = unread > 0
+        ? `<span class="dm-unread-badge">${unread > 9 ? '9+' : unread}</span>` : '';
       return `<div class="presence-chip presence-chip-other" title="${esc(u.name)}에게 메시지 보내기"
-        onclick="openDM('${esc(u.uid)}','${esc(u.name)}','${esc(u.emoji)}')">${u.emoji}</div>`;
+        onclick="openDM('${esc(u.uid)}','${esc(u.name)}','${esc(u.emoji)}')">${u.emoji}${badge}</div>`;
     }).join('');
-  // 타인 접속 시 채팅 버튼 표시
-  const hasOthers = users.some(u => !u.isMe);
+  // 타인 접속 or DM 안읽음 있으면 채팅 버튼 표시
+  const hasOthers  = list.some(u => !u.isMe);
+  const hasDmUnread = Object.values(_dmUnreadCounts).some(n => n > 0);
   const btn = document.getElementById('chatToggleBtn');
-  if (btn) btn.classList.toggle('hidden', !hasOthers && _chatUnread === 0);
+  if (btn) btn.classList.toggle('hidden', !hasOthers && _chatUnread === 0 && !hasDmUnread);
 }
 
 // ══════════════════════════════════════════════════
@@ -6947,10 +6953,18 @@ let _chatUnread   = 0;
 let _chatOpen     = false;
 
 // DM 상태
-let _dmMode     = false;   // true = DM 패널 표시 중
-let _dmPartner  = null;    // { uid, name, emoji }
-let _dmKey      = null;    // sorted uid join
-let _dmListener = null;
+let _dmMode          = false;   // true = DM 패널 표시 중
+let _dmPartner       = null;    // { uid, name, emoji }
+let _dmKey           = null;    // sorted uid join
+let _dmListener      = null;
+let _dmUnreadCounts  = {};      // { partnerUid: unreadCount }
+let _lastGroupMsgs   = null;    // 그룹 메시지 캐시 (DM 복귀 시 즉시 재렌더링용)
+let _lastPresenceUsers = [];    // 칩 재렌더링용 캐시
+
+// DM 읽음 타임스탬프 (localStorage)
+function _dmLastReadKey(k)  { return `dpre-dm-read-${k}`; }
+function _dmGetLastRead(k)  { return parseInt(localStorage.getItem(_dmLastReadKey(k)) || '0', 10); }
+function _dmSetLastRead(k)  { localStorage.setItem(_dmLastReadKey(k), String(Date.now())); }
 
 function _chatLastReadKey(fileKey) { return `dpre-chat-read-${fileKey}`; }
 function _chatGetLastRead(fileKey) { return parseInt(localStorage.getItem(_chatLastReadKey(fileKey)) || '0', 10); }
@@ -6979,9 +6993,12 @@ function chatLeave() {
   _chatUnread  = 0;
   _chatOpen    = false;
   _closeDmListener();
-  _dmMode    = false;
-  _dmPartner = null;
-  _dmKey     = null;
+  _dmMode         = false;
+  _dmPartner      = null;
+  _dmKey          = null;
+  _dmUnreadCounts = {};
+  _lastGroupMsgs  = null;
+  _lastPresenceUsers = [];
   const panel = document.getElementById('chatPanel');
   if (panel) panel.classList.add('hidden');
   const btn = document.getElementById('chatToggleBtn');
@@ -7035,6 +7052,8 @@ function toggleChatPanel() {
 }
 
 function renderChatMessages(msgs) {
+  _lastGroupMsgs = msgs; // 항상 캐시
+  if (_dmMode) return;   // DM 패널 표시 중이면 DOM 건드리지 않음
   const wrap = document.getElementById('chatMessages');
   if (!wrap) return;
   const user = auth.currentUser;
@@ -7111,10 +7130,38 @@ function openDM(partnerUid, partnerName, partnerEmoji) {
   const user = auth.currentUser;
   if (!user || partnerUid === user.uid) return;
 
-  // DM key: 두 uid 알파벳 정렬 후 결합 (양쪽에서 동일한 키)
-  _dmKey     = [user.uid, partnerUid].sort().join('-');
+  const newDmKey = [user.uid, partnerUid].sort().join('-');
+
+  // 다른 상대로 전환할 때만 리스너 교체
+  if (_dmKey !== newDmKey) {
+    _closeDmListener();
+    _dmKey = newDmKey;
+    _dmListener = db.collection('dms').doc(_dmKey).collection('messages')
+      .orderBy('sentAt', 'asc').limitToLast(100)
+      .onSnapshot(snap => {
+        const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const isViewing = _dmMode && _dmPartner?.uid === partnerUid;
+        if (isViewing) {
+          // 현재 이 DM을 보고 있으면 렌더링 + 읽음 처리
+          renderDmMessages(msgs);
+          _dmUnreadCounts[partnerUid] = 0;
+          _dmSetLastRead(_dmKey);
+        } else {
+          // 백그라운드: 안읽음 수 갱신 후 칩 뱃지만 업데이트
+          const lastRead = _dmGetLastRead(_dmKey);
+          _dmUnreadCounts[partnerUid] = msgs.filter(m => m.uid === partnerUid && m.sentAt > lastRead).length;
+          renderPresenceChips(_lastPresenceUsers);
+        }
+      }, () => {});
+  }
+
   _dmPartner = { uid: partnerUid, name: partnerName, emoji: partnerEmoji };
   _dmMode    = true;
+
+  // 안읽음 초기화
+  _dmUnreadCounts[partnerUid] = 0;
+  _dmSetLastRead(_dmKey);
+  renderPresenceChips(_lastPresenceUsers);
 
   // 헤더 타이틀 교체 (이모티콘 + 이름)
   document.getElementById('chatGroupDesc')?.classList.add('hidden');
@@ -7126,15 +7173,6 @@ function openDM(partnerUid, partnerName, partnerEmoji) {
   const input = document.getElementById('chatInput');
   if (input) input.placeholder = `${partnerName}님에게 메시지…`;
 
-  // 기존 그룹 리스너와 독립적으로 DM 리스너 시작
-  _closeDmListener();
-  _dmListener = db.collection('dms').doc(_dmKey).collection('messages')
-    .orderBy('sentAt', 'asc').limitToLast(100)
-    .onSnapshot(snap => {
-      const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      renderDmMessages(msgs);
-    }, () => {});
-
   // 패널 열기
   const panel = document.getElementById('chatPanel');
   if (panel) panel.classList.remove('hidden');
@@ -7142,17 +7180,17 @@ function openDM(partnerUid, partnerName, partnerEmoji) {
   document.getElementById('chatToggleBtn')?.classList.add('active');
 
   setTimeout(() => {
-    const msgs = document.getElementById('chatMessages');
-    if (msgs) msgs.scrollTop = msgs.scrollHeight;
+    const wrap = document.getElementById('chatMessages');
+    if (wrap) wrap.scrollTop = wrap.scrollHeight;
     input?.focus();
   }, 50);
 }
 
 function closeDM() {
-  _closeDmListener();
+  // _dmListener는 닫지 않음 — 백그라운드에서 안읽음 계속 추적
   _dmMode    = false;
   _dmPartner = null;
-  _dmKey     = null;
+  // _dmKey 유지 (같은 상대 다시 열 때 리스너 재사용)
 
   // 헤더 타이틀 복원
   document.getElementById('chatGroupDesc')?.classList.remove('hidden');
@@ -7165,10 +7203,10 @@ function closeDM() {
   const input = document.getElementById('chatInput');
   if (input) input.placeholder = '메시지 입력…';
 
-  // 그룹 채팅 메시지 다시 렌더링 (리스너는 계속 살아있음)
-  const panel = document.getElementById('chatPanel');
-  if (panel && !panel.classList.contains('hidden')) {
-    // 빈 메시지 영역 표시 — 다음 onSnapshot 도착 시 갱신됨
+  // 그룹 메시지 즉시 복원 (캐시 사용)
+  if (_lastGroupMsgs !== null) {
+    renderChatMessages(_lastGroupMsgs);
+  } else {
     const wrap = document.getElementById('chatMessages');
     if (wrap) wrap.innerHTML = '';
   }
