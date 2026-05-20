@@ -6924,9 +6924,14 @@ function renderPresenceChips(users) {
   if (!users.length) { wrap.innerHTML = ''; return; }
   wrap.innerHTML =
     `<span class="presence-label">현재 접속자</span>` +
-    users.map(u =>
-      `<div class="presence-chip${u.isMe ? ' presence-chip-me' : ''}" title="${u.name}">${u.emoji}</div>`
-    ).join('');
+    users.map(u => {
+      if (u.isMe) {
+        return `<div class="presence-chip presence-chip-me" title="${esc(u.name)}">${u.emoji}</div>`;
+      }
+      // 타인: 클릭 시 DM 열기
+      return `<div class="presence-chip presence-chip-other" title="${esc(u.name)}에게 메시지 보내기"
+        onclick="openDM('${esc(u.uid)}','${esc(u.name)}','${esc(u.emoji)}')">${u.emoji}</div>`;
+    }).join('');
   // 타인 접속 시 채팅 버튼 표시
   const hasOthers = users.some(u => !u.isMe);
   const btn = document.getElementById('chatToggleBtn');
@@ -7047,12 +7052,9 @@ function renderChatMessages(msgs) {
     let divider = '';
     if (day !== lastDay) { lastDay = day; divider = `<div class="chat-day-divider"><span>${day}</span></div>`; }
     const nameRow = !isMe ? `<div class="chat-msg-name">${esc(m.name)}</div>` : '';
-    const avatarExtra = !isMe
-      ? ` chat-msg-avatar-clickable" title="${esc(m.name)}님에게 DM" onclick="openDM('${esc(m.uid)}','${esc(m.name)}','${esc(m.emoji || '😊')}')`
-      : ``;
     return `${divider}
     <div class="chat-msg${isMe ? ' chat-msg-me' : ''}">
-      <div class="chat-msg-avatar${avatarExtra}">${m.emoji || '😊'}</div>
+      <div class="chat-msg-avatar">${m.emoji || '😊'}</div>
       <div class="chat-msg-body">
         ${nameRow}
         <div class="chat-msg-bubble">${esc(m.text)}</div>

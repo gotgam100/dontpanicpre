@@ -1490,8 +1490,12 @@ kbd {
   transition: transform .15s;
 }
 .presence-chip:hover { transform: scale(1.15); }
-.presence-chip-me { opacity: 1; }
-.presence-chip:not(.presence-chip-me) { opacity: .4; }
+.presence-chip-me { opacity: 1; cursor: default; }
+.presence-chip-other {
+  opacity: .4; cursor: pointer;
+  transition: opacity .15s, transform .15s;
+}
+.presence-chip-other:hover { opacity: 1; transform: scale(1.18); }
 
 /* ══ 채팅 토글 버튼 ══ */
 .chat-toggle-btn {
