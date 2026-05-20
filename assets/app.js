@@ -6892,6 +6892,9 @@ async function presenceJoin() {
       await docRef.set({ [user.uid]: { name, emoji: currentEmoji, updatedAt: Date.now() } }, { merge: true });
     } catch(e) {}
   }, 30000);
+
+  // 채팅도 같이 시작
+  chatJoin(_presenceFileKey);
 }
 
 async function presenceLeave() {
@@ -6907,6 +6910,7 @@ async function presenceLeave() {
   }
   _presenceFileKey = null;
   renderPresenceChips([]);
+  chatLeave();
 }
 
 function renderPresenceChips(users) {
@@ -6918,6 +6922,159 @@ function renderPresenceChips(users) {
     users.map(u =>
       `<div class="presence-chip${u.isMe ? ' presence-chip-me' : ''}" title="${u.name}">${u.emoji}</div>`
     ).join('');
+  // 타인 접속 시 채팅 버튼 표시
+  const hasOthers = users.some(u => !u.isMe);
+  const btn = document.getElementById('chatToggleBtn');
+  if (btn) btn.classList.toggle('hidden', !hasOthers && _chatUnread === 0);
+}
+
+// ══════════════════════════════════════════════════
+// 채팅 (Firestore 실시간)
+// ══════════════════════════════════════════════════
+let _chatListener = null;
+let _chatFileKey  = null;
+let _chatUnread   = 0;
+let _chatOpen     = false;
+
+function _chatLastReadKey(fileKey) { return `dpre-chat-read-${fileKey}`; }
+function _chatGetLastRead(fileKey) { return parseInt(localStorage.getItem(_chatLastReadKey(fileKey)) || '0', 10); }
+function _chatSetLastRead(fileKey) { localStorage.setItem(_chatLastReadKey(fileKey), String(Date.now())); }
+
+function chatJoin(fileKey) {
+  if (_chatListener) { _chatListener(); _chatListener = null; }
+  _chatFileKey = fileKey;
+
+  // 30일 이상 된 메시지 정리 (비동기, 무시 가능)
+  pruneOldChatMessages(fileKey).catch(() => {});
+
+  // 실시간 리스너 (최근 100개)
+  _chatListener = db.collection('chats').doc(fileKey).collection('messages')
+    .orderBy('sentAt', 'asc').limitToLast(100)
+    .onSnapshot(snap => {
+      const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderChatMessages(msgs);
+      updateChatBadge(msgs);
+    }, () => {});
+}
+
+function chatLeave() {
+  if (_chatListener) { _chatListener(); _chatListener = null; }
+  _chatFileKey = null;
+  _chatUnread  = 0;
+  _chatOpen    = false;
+  const panel = document.getElementById('chatPanel');
+  if (panel) panel.classList.add('hidden');
+  const btn = document.getElementById('chatToggleBtn');
+  if (btn) btn.classList.add('hidden');
+  updateChatBadge([]);
+}
+
+async function chatSend() {
+  const input = document.getElementById('chatInput');
+  const text  = (input?.value || '').trim();
+  if (!text || !_chatFileKey) return;
+  const user  = auth.currentUser;
+  if (!user) return;
+  const emoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
+  const name  = (user.displayName || user.email || '').split('@')[0] || '사용자';
+  input.value = '';
+  try {
+    await db.collection('chats').doc(_chatFileKey).collection('messages').add({
+      uid: user.uid, name, emoji, text, sentAt: Date.now()
+    });
+  } catch(e) { input.value = text; showToast('메시지 전송 실패. 다시 시도해주세요.'); }
+}
+
+function toggleChatPanel() {
+  const panel = document.getElementById('chatPanel');
+  const btn   = document.getElementById('chatToggleBtn');
+  if (!panel) return;
+  _chatOpen = panel.classList.toggle('hidden') ? false : true;
+  // hidden이 제거되면 open 상태
+  _chatOpen = !panel.classList.contains('hidden');
+  btn?.classList.toggle('active', _chatOpen);
+  if (_chatOpen && _chatFileKey) {
+    _chatSetLastRead(_chatFileKey);
+    _chatUnread = 0;
+    updateChatBadge(null);
+    // 스크롤 맨 아래
+    setTimeout(() => {
+      const msgs = document.getElementById('chatMessages');
+      if (msgs) msgs.scrollTop = msgs.scrollHeight;
+      document.getElementById('chatInput')?.focus();
+    }, 50);
+  }
+}
+
+function renderChatMessages(msgs) {
+  const wrap = document.getElementById('chatMessages');
+  if (!wrap) return;
+  const user = auth.currentUser;
+  if (!msgs.length) {
+    wrap.innerHTML = `<div class="chat-empty"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>아직 메시지가 없습니다</span></div>`;
+    return;
+  }
+  const pad = n => String(n).padStart(2, '0');
+  let lastDay = '';
+  wrap.innerHTML = msgs.map(m => {
+    const isMe = m.uid === user?.uid;
+    const d    = new Date(m.sentAt);
+    const day  = `${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())}`;
+    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    let divider = '';
+    if (day !== lastDay) { lastDay = day; divider = `<div class="chat-day-divider"><span>${day}</span></div>`; }
+    const nameRow = !isMe ? `<div class="chat-msg-name">${esc(m.name)}</div>` : '';
+    return `${divider}
+    <div class="chat-msg${isMe ? ' chat-msg-me' : ''}">
+      <div class="chat-msg-avatar">${m.emoji || '😊'}</div>
+      <div class="chat-msg-body">
+        ${nameRow}
+        <div class="chat-msg-bubble">${esc(m.text)}</div>
+        <div class="chat-msg-time">${time}</div>
+      </div>
+    </div>`;
+  }).join('');
+  // 패널 열려있으면 스크롤 유지
+  if (_chatOpen) {
+    wrap.scrollTop = wrap.scrollHeight;
+    if (_chatFileKey) { _chatSetLastRead(_chatFileKey); _chatUnread = 0; updateChatBadge(null); }
+  }
+}
+
+function updateChatBadge(msgs) {
+  const btn   = document.getElementById('chatToggleBtn');
+  const badge = document.getElementById('chatBadge');
+  if (!badge) return;
+  if (!msgs || _chatOpen) {
+    _chatUnread = 0;
+    badge.classList.add('hidden');
+    return;
+  }
+  const lastRead = _chatFileKey ? _chatGetLastRead(_chatFileKey) : 0;
+  const uid      = auth.currentUser?.uid;
+  _chatUnread    = msgs.filter(m => m.uid !== uid && m.sentAt > lastRead).length;
+  if (_chatUnread > 0) {
+    badge.textContent = _chatUnread > 9 ? '9+' : String(_chatUnread);
+    badge.classList.remove('hidden');
+    // 배지 있으면 버튼도 표시
+    if (btn) btn.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
+async function pruneOldChatMessages(fileKey) {
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000; // 30일
+  try {
+    const snap = await db.collection('chats').doc(fileKey).collection('messages').get();
+    if (snap.empty) return;
+    const batch = db.batch();
+    let count = 0;
+    snap.docs.forEach(doc => {
+      if (doc.data().sentAt < cutoff) { batch.delete(doc.ref); count++; }
+    });
+    if (count > 0) await batch.commit();
+  } catch(e) {}
 }
 
 function showToast(msg, duration = 3000) {

@@ -11,7 +11,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://apis.google.com/js/api.js" async></script>
-<link rel="stylesheet" href="assets/app.css?v=20260520-presence-ui">
+<link rel="stylesheet" href="assets/app.css?v=20260520-chat">
 <link rel="stylesheet" href="assets/responsive.css">
 
 <!-- Theme init: apply before paint to avoid flash -->
@@ -271,9 +271,33 @@
   </nav>
   <div class="header-right">
     <div id="presenceChips" class="presence-chips"></div>
+    <button id="chatToggleBtn" class="chat-toggle-btn hidden" onclick="toggleChatPanel()" title="채팅">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span id="chatBadge" class="chat-badge hidden">0</span>
+    </button>
     <button class="mobile-menu-btn" id="mobileMenuBtn" onclick="toggleMobileNav()" title="메뉴">☰</button>
   </div>
 </header>
+
+<!-- ══════════ 채팅 패널 ══════════ -->
+<div id="chatPanel" class="chat-panel hidden">
+  <div class="chat-panel-header">
+    <span class="chat-panel-title">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      채팅
+    </span>
+    <button class="chat-panel-close" onclick="toggleChatPanel()">✕</button>
+  </div>
+  <div id="chatMessages" class="chat-messages"></div>
+  <div class="chat-input-row">
+    <input id="chatInput" class="chat-input" type="text" placeholder="메시지 입력…"
+           maxlength="500"
+           onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();chatSend()}">
+    <button class="chat-send-btn" onclick="chatSend()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+    </button>
+  </div>
+</div>
 
 <!-- 모바일 내비 드로어 -->
 <div class="mobile-nav-overlay" id="mobileNavOverlay" onclick="closeMobileNav()"></div>
@@ -690,7 +714,7 @@
   </div>
 </div>
 
-<script src="assets/app.js?v=20260520-presence-ui" defer></script>
+<script src="assets/app.js?v=20260520-chat" defer></script>
 <script src="assets/responsive.js?v=20260519-json-folder" defer></script>
 
 <!-- ═══ 하단 탭바 (모바일 전용) ═══ -->

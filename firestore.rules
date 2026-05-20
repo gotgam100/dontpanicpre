@@ -8,8 +8,12 @@ service cloud.firestore {
     }
 
     // 접속자 표시(Presence): 로그인한 사용자 누구나 읽기/쓰기
-    // 파일 공동 작업자들이 서로의 접속 상태를 확인하기 위해 필요
     match /presence/{docId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // 채팅: 로그인한 사용자 누구나 읽기/쓰기
+    match /chats/{fileKey}/messages/{msgId} {
       allow read, write: if request.auth != null;
     }
   }
