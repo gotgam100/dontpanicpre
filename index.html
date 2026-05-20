@@ -48,42 +48,15 @@
 <div id="loginOverlay" class="hidden">
   <div class="login-box">
     <div class="login-logo"><span style="color:#fbbf24">Don't Panic</span> <span style="color:var(--text)">Pre</span></div>
-
-    <!-- Google 로그인 -->
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:24px;text-align:center;line-height:1.6">
+      Google 계정으로 로그인하세요
+    </p>
     <button class="auth-google-btn" onclick="googleLogin()">
       <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
-      Google 계정으로 로그인
+      Google 계정으로 계속하기
     </button>
-
-    <!-- 이메일 로그인 섹션 -->
-    <div id="authEmailSection">
-      <div class="auth-or-divider"><span>또는</span></div>
-      <div class="login-tabs">
-        <button class="login-tab active" id="tabLogin"  onclick="switchAuthTab('login')">로그인</button>
-        <button class="login-tab"        id="tabSignup" onclick="switchAuthTab('signup')">회원가입</button>
-      </div>
-      <div class="login-form-col" id="authLoginForm">
-        <input class="login-input" id="authEmail"    type="email"    placeholder="이메일"
-               onkeydown="if(event.key==='Enter') document.getElementById('authPassword').focus()">
-        <input class="login-input" id="authPassword" type="password" placeholder="비밀번호"
-               onkeydown="if(event.key==='Enter') firebaseLogin()">
-        <div class="login-error" id="authLoginError"></div>
-        <button class="login-btn" onclick="firebaseLogin()">로그인</button>
-        <button class="login-btn-ghost" style="font-size:11px" onclick="firebaseResetPassword()">비밀번호를 잊으셨나요?</button>
-      </div>
-      <div class="login-form-col" id="authSignupForm" style="display:none">
-        <input class="login-input" id="signupEmail"  type="email"    placeholder="이메일"
-               onkeydown="if(event.key==='Enter') document.getElementById('signupPw1').focus()">
-        <input class="login-input" id="signupPw1"    type="password" placeholder="비밀번호 (6자 이상)"
-               onkeydown="if(event.key==='Enter') document.getElementById('signupPw2').focus()">
-        <input class="login-input" id="signupPw2"    type="password" placeholder="비밀번호 확인"
-               onkeydown="if(event.key==='Enter') firebaseSignup()">
-        <div class="login-error" id="authSignupError"></div>
-        <button class="login-btn" onclick="firebaseSignup()">회원가입</button>
-      </div>
-    </div>
-
     <div class="login-loading" id="authLoading" style="display:none">⏳ 처리 중...</div>
+    <div class="login-error" id="authLoginError"></div>
   </div>
 </div>
 
@@ -95,40 +68,42 @@
     <div class="storage-setup-subtitle">이후에도 설정에서 변경할 수 있습니다.</div>
     <div class="storage-setup-cards">
 
-      <div class="storage-card" onclick="chooseStorage('drive')">
+      <!-- Google Drive 카드 (모든 기기에서 표시) -->
+      <div class="storage-card" onclick="chooseStorage('drive-api')">
         <div class="storage-card-top">
           <div class="storage-card-icon">
             <svg width="28" height="28" viewBox="0 0 87.3 78"><path fill="#0066DA" d="M6.6 66.85l3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3L27.5 53H0c0 1.55.4 3.1 1.2 4.5z"/><path fill="#00AC47" d="M43.65 25L29.9 0c-1.35.8-2.5 1.9-3.3 3.3L1.2 48.5A9.13 9.13 0 0 0 0 53h27.5z"/><path fill="#EA4335" d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5H60l5.55 10.85z"/><path fill="#00832D" d="M43.65 25L57.4 0c-1.35-.8-2.95-1.2-4.5-1.2H34.4c-1.55 0-3.1.45-4.5 1.2z"/><path fill="#2684FC" d="M59.8 53H27.5L13.75 76.8c1.4.8 2.95 1.2 4.5 1.2h50.85c1.55 0 3.1-.45 4.5-1.2z"/><path fill="#FFBA00" d="M73.4 26.5l-12.25-21.2c-.8-1.4-1.95-2.5-3.3-3.3L43.65 25 59.8 53h27.45c0-1.55-.4-3.1-1.2-4.5z"/></svg>
           </div>
           <div class="storage-card-info">
             <div class="storage-card-name">Google Drive</div>
-            <div class="storage-card-badge collab">👥 팀 협업 가능</div>
+            <div class="storage-card-badge collab">📱 모든 기기 사용 가능</div>
           </div>
         </div>
         <ul class="storage-card-desc">
           <li>프로젝트가 내 Google Drive에 파일로 저장됩니다</li>
+          <li>데스크탑, 아이패드, 아이폰 어디서나 접근 가능</li>
           <li>Drive에서 팀원에게 파일을 공유하면 함께 편집할 수 있습니다</li>
-          <li>다른 기기에서도 같은 파일에 접근 가능</li>
         </ul>
-        <div class="storage-card-note">Google 계정 로그인 필요</div>
+        <div class="storage-card-note">인터넷 연결 필요 · 저장 속도 다소 느림</div>
       </div>
 
-      <div class="storage-card" onclick="chooseStorage('app')">
+      <!-- 로컬 폴더 카드 (iOS에서 자동 숨김) -->
+      <div class="storage-card" id="storageLocalCard" onclick="chooseStorage('local')">
         <div class="storage-card-top">
           <div class="storage-card-icon">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 7h10M7 11h6"/></svg>
           </div>
           <div class="storage-card-info">
             <div class="storage-card-name">내 컴퓨터에 저장</div>
-            <div class="storage-card-badge solo">👤 개인 사용</div>
+            <div class="storage-card-badge solo">🖥️ 데스크탑 전용</div>
           </div>
         </div>
         <ul class="storage-card-desc">
           <li>내 컴퓨터의 원하는 폴더에 직접 파일로 저장됩니다</li>
-          <li>혼자 작업하거나 단순하게 시작할 때 적합합니다</li>
-          <li>이메일 또는 Google 계정 모두 사용 가능</li>
+          <li>빠른 저장 · 오프라인에서도 작동</li>
+          <li>Google Drive 동기화 폴더 안에 두면 자동 백업 가능</li>
         </ul>
-        <div class="storage-card-note">저장 폴더를 자유롭게 선택 가능</div>
+        <div class="storage-card-note">데스크탑 Chrome / Edge / Safari 전용</div>
       </div>
 
     </div>
@@ -164,13 +139,19 @@
   <div class="projects-box">
     <div id="projectsUserName" class="projects-username"></div>
 
-    <div class="projects-action-list">
+    <div class="projects-action-list" id="projectsActionList">
       <button class="proj-btn proj-btn-primary" onclick="showNewProjectModal()">＋ 새 프로젝트</button>
-      <button class="proj-btn proj-btn-secondary" onclick="pickOtherProjectFolder()">📂 프로젝트 폴더 열기</button>
+      <!-- 로컬 모드: 폴더 열기 버튼 / Drive 모드: 새로고침 버튼 (JS로 전환) -->
+      <button class="proj-btn proj-btn-secondary" id="projSecondaryBtn" onclick="pickOtherProjectFolder()">📂 프로젝트 폴더 열기</button>
     </div>
 
-    <!-- 협업 안내 박스 -->
-    <div class="projects-collab-hint">
+    <!-- 저장소 변경 링크 -->
+    <div style="text-align:center;margin-top:4px;margin-bottom:2px">
+      <button class="login-btn-ghost" style="font-size:11px;opacity:.55" onclick="resetStorageChoice()">저장 위치 변경</button>
+    </div>
+
+    <!-- 협업 안내 박스 (로컬 모드에서만 표시) -->
+    <div class="projects-collab-hint" id="projectsCollabHint">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
       구글 드라이브를 이용하여 다른 사람과 프로젝트를 공유할 수 있습니다. 내 컴퓨터의 구글 드라이브 동기화 폴더 안에 폴더를 만들어 지정하세요.
     </div>
@@ -654,7 +635,6 @@
       </div>
 
       <div class="myinfo-actions">
-        <button class="myinfo-btn" onclick="sendPasswordReset()">🔑 비밀번호 재설정 이메일 보내기</button>
         <button class="myinfo-btn myinfo-btn-danger" onclick="deleteAccount()">🗑 계정 삭제</button>
         <div class="myinfo-danger-hint">계정을 삭제하면 모든 스크립트 데이터가 영구적으로 삭제됩니다.</div>
       </div>
