@@ -6475,6 +6475,7 @@ async function _showFolderBrowseModal(handle, options = {}) {
         return `<div class="folder-browse-item" onclick="openBrowsedProject(${i})">
           <span class="fbi-icon">📄</span>
           <span class="fbi-name">${esc(name)}</span>
+          <span class="fbi-date">${_fmtModified(f.modifiedTime)}</span>
         </div>`;
       }).join('');
     }
@@ -6505,6 +6506,20 @@ async function openBrowsedProject(idx) {
   } catch(e) {
     console.error('프로젝트 열기 오류:', e);
   }
+}
+
+/** modifiedTime(ms) → "26.11.05 오후 2:00" */
+function _fmtModified(ms) {
+  if (!ms) return '';
+  const d   = new Date(ms);
+  const yy  = String(d.getFullYear()).slice(2);
+  const mm  = String(d.getMonth() + 1).padStart(2, '0');
+  const dd  = String(d.getDate()).padStart(2, '0');
+  const h24 = d.getHours();
+  const ampm = h24 < 12 ? '오전' : '오후';
+  const h12  = h24 % 12 || 12;
+  const min  = String(d.getMinutes()).padStart(2, '0');
+  return `${yy}.${mm}.${dd} ${ampm} ${h12}:${min}`;
 }
 
 // ── 로컬 파일 목록 ───────────────────────────────
