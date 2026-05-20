@@ -6180,6 +6180,12 @@ function addRecentProject(name, folderName, parentName) {
   list.unshift({ name, folderName, folderPath, openedAt: new Date().toISOString() });
   localStorage.setItem('dpre-recent', JSON.stringify(list.slice(0, 15)));
 }
+function removeRecentProject(idx) {
+  const list = getRecentProjects();
+  list.splice(idx, 1);
+  localStorage.setItem('dpre-recent', JSON.stringify(list));
+  renderRecentProjects();
+}
 function renderRecentProjects() {
   const el = document.getElementById('recentProjectsList');
   if (!el) return;
@@ -6256,12 +6262,16 @@ async function openRecentProject(idx) {
 
   // ── 3차: 폴더 직접 선택 (confirm 클릭이 새 user gesture) ──
   resetEl();
-  if (!confirm(`"${p.name}" 프로젝트 파일을 찾을 수 없습니다.\n저장된 폴더를 선택해 주세요.`)) return;
+  if (!confirm(`"${p.name}" 프로젝트 파일을 찾을 수 없습니다.\n저장된 폴더를 선택해 주세요.`)) {
+    removeRecentProject(idx);
+    return;
+  }
   try {
     const h = await window.showDirectoryPicker({ mode: 'readwrite' });
     _folderHandle = h;
     if (await _tryLoadFile(h)) return;
     alert('선택한 폴더에서 해당 프로젝트 파일을 찾을 수 없습니다.');
+    removeRecentProject(idx);
   } catch(e) { if (e.name !== 'AbortError') alert('폴더 선택 중 오류가 발생했습니다.'); }
 }
 
