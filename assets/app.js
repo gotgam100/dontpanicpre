@@ -6840,10 +6840,11 @@ async function presenceJoin() {
     }
   });
 
-  // heartbeat
+  // heartbeat (매 30초, 최신 이모지를 localStorage에서 읽어 반영)
   _presenceTimer = setInterval(async () => {
     try {
-      await docRef.set({ [user.uid]: { name, emoji, updatedAt: Date.now() } }, { merge: true });
+      const currentEmoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
+      await docRef.set({ [user.uid]: { name, emoji: currentEmoji, updatedAt: Date.now() } }, { merge: true });
     } catch(e) {}
   }, 30000);
 }
@@ -6867,11 +6868,11 @@ function renderPresenceChips(users) {
   const wrap = document.getElementById('presenceChips');
   if (!wrap) return;
   if (!users.length) { wrap.innerHTML = ''; return; }
-  wrap.innerHTML = users.map(u =>
-    `<div class="presence-chip${u.isMe ? ' presence-chip-me' : ''}" title="${u.name}">
-      <span class="presence-chip-emoji">${u.emoji}</span>
-    </div>`
-  ).join('');
+  wrap.innerHTML =
+    `<span class="presence-label">현재 접속자</span>` +
+    users.map(u =>
+      `<div class="presence-chip${u.isMe ? ' presence-chip-me' : ''}" title="${u.name}">${u.emoji}</div>`
+    ).join('');
 }
 
 function showToast(msg, duration = 3000) {
@@ -6949,6 +6950,15 @@ function selectProfileEmoji(emoji) {
     btn.classList.toggle('selected', btn.textContent === emoji);
   });
   document.getElementById('myInfoEmojiPopover')?.classList.remove('open');
+
+  // Presence 문서의 내 이모지도 즉시 업데이트 → 다른 접속자 화면에도 반영
+  const user = auth.currentUser;
+  if (user && _presenceFileKey) {
+    const name = (user.displayName || user.email || '').split('@')[0] || '사용자';
+    db.collection('presence').doc(_presenceFileKey)
+      .set({ [user.uid]: { name, emoji, updatedAt: Date.now() } }, { merge: true })
+      .catch(() => {});
+  }
 }
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
