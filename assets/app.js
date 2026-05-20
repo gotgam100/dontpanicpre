@@ -6683,9 +6683,16 @@ function showNewProjectModal() {
   const pathEl = document.getElementById('newProjectSavePath');
   if (pathEl) {
     const folderIcon = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:5px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
-    pathEl.innerHTML = _folderHandle
-      ? `${folderIcon}<strong>${_folderHandle.name}</strong>`
-      : `${folderIcon}<span style="opacity:.65">폴더 미선택 — 클릭해서 선택</span>`;
+    if (_folderHandle) {
+      const prefix = _storageMode === 'drive'
+        ? `<span style="opacity:.5">Google Drive › 내 드라이브 ›</span> `
+        : _folderParentName
+          ? `<span style="opacity:.5">내 컴퓨터 › ${_folderParentName} ›</span> `
+          : `<span style="opacity:.5">내 컴퓨터 ›</span> `;
+      pathEl.innerHTML = `${folderIcon}${prefix}<strong>${_folderHandle.name}</strong>`;
+    } else {
+      pathEl.innerHTML = `${folderIcon}<span style="opacity:.65">폴더 미선택 — 클릭해서 선택</span>`;
+    }
     pathEl.style.cursor = 'pointer';
     pathEl.onclick = async () => { await pickProjectFolder(); showNewProjectModal(); };
   }
