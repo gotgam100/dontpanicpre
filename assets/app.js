@@ -4512,11 +4512,9 @@ function refreshSettingsTab() {
 
   const parts = [];
 
+  parts.push(`<span class="stg-bc-item">${folderIcon}내 컴퓨터</span>`);
   if (_storageMode === 'drive') {
     parts.push(`<span class="stg-bc-item">${driveIcon}Google Drive</span>`);
-    parts.push(`<span class="stg-bc-item">${folderIcon}내 드라이브</span>`);
-  } else {
-    parts.push(`<span class="stg-bc-item">${folderIcon}내 컴퓨터</span>`);
   }
 
   if (_folderHandle) {
@@ -6351,9 +6349,16 @@ async function _doPickFolder() {
     const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
     _folderHandle     = handle;
     _folderParentName = null;
+    // 폴더를 직접 선택했으므로 항상 로컬 파일 모드
+    _storageMode = 'drive';
+    localStorage.setItem('dpre-storage-chosen', 'drive');
     await idbSaveFolderHandle(handle);
     refreshSettingsTab();
     if (_dataLoaded && _currentFileName) await doSave();
+    // 새 프로젝트 모달이 열려 있으면 경로 즉시 갱신
+    if (!document.getElementById('newProjectModal')?.classList.contains('hidden')) {
+      showNewProjectModal();
+    }
   } catch(e) {
     if (e.name === 'AbortError') return;
     if (e.name === 'SecurityError') {
@@ -6385,6 +6390,8 @@ async function pickOtherProjectFolder() {
   try {
     const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
     _folderHandle = handle;
+    _storageMode = 'drive';
+    localStorage.setItem('dpre-storage-chosen', 'drive');
     await idbSaveFolderHandle(handle);
     await _showFolderBrowseModal(handle);
   } catch(e) {
@@ -6684,12 +6691,10 @@ function showNewProjectModal() {
   if (pathEl) {
     const folderIcon = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:5px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
     if (_folderHandle) {
-      const prefix = _storageMode === 'drive'
-        ? `<span style="opacity:.5">Google Drive › 내 드라이브 ›</span> `
-        : _folderParentName
-          ? `<span style="opacity:.5">내 컴퓨터 › ${_folderParentName} ›</span> `
-          : `<span style="opacity:.5">내 컴퓨터 ›</span> `;
-      pathEl.innerHTML = `${folderIcon}${prefix}<strong>${_folderHandle.name}</strong>`;
+      const driveSegment = _storageMode === 'drive'
+        ? `<span style="opacity:.5">Google Drive ›</span> `
+        : '';
+      pathEl.innerHTML = `${folderIcon}<span style="opacity:.5">내 컴퓨터 ›</span> ${driveSegment}<strong>${_folderHandle.name}</strong>`;
     } else {
       pathEl.innerHTML = `${folderIcon}<span style="opacity:.65">폴더 미선택 — 클릭해서 선택</span>`;
     }
