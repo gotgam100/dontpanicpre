@@ -403,6 +403,23 @@ function checkEditorEmpty() {
   const has = [...el.querySelectorAll('p')].some(p => p.textContent.trim());
   el.classList.toggle('empty', !has);
   document.getElementById('emptyOverlay').classList.toggle('hidden', has);
+
+  // 내용이 완전히 비었으면 빈 <p> 잔재를 1개로 정리하고 minHeight 리셋
+  // → 삭제 후 빈 페이지가 여러 장 남는 문제 방지
+  if (!has) {
+    // 남아 있는 모든 <p>의 pbPushed 마진 제거
+    el.querySelectorAll('p').forEach(p => {
+      p.style.marginTop = '';
+      delete p.dataset.pbPushed;
+    });
+    // 빈 <p> 가 2개 이상이면 1개만 남김
+    const paras = [...el.querySelectorAll('p')];
+    if (paras.length > 1) {
+      paras.slice(1).forEach(p => p.remove());
+    }
+    // inline minHeight 초기화 → CSS min-height: 297mm(1페이지)로 돌아감
+    el.style.minHeight = '';
+  }
 }
 
 function getCurrentP() {
@@ -831,6 +848,9 @@ function updatePageBreaks() {
   const layer  = document.getElementById('pageBreakLayer');
   const editor = document.getElementById('scriptEditor');
   if (!layer || !editor) return;
+  // minHeight를 먼저 1페이지로 리셋해야 실제 콘텐츠 높이를 정확히 측정할 수 있음
+  // (기존 minHeight가 남아 있으면 내용을 지워도 scrollHeight가 줄어들지 않음)
+  editor.style.minHeight = A4_PAGE_H + 'px';
   const totalH   = editor.scrollHeight;
   const totalPages = Math.max(1, Math.ceil(totalH / A4_PAGE_H));
   // 마지막 페이지가 항상 꽉 찬 1페이지로 보이도록 min-height 강제
@@ -6594,9 +6614,12 @@ async function saveVersionSnapshot(data) {
 }
 
 async function pruneOldVersions(dir) {
+  if (!_currentFileName) return;
+  const suffix = `_${_currentFileName}.dpre.json`;
   const entries = [];
   for await (const [name] of dir.entries()) {
-    if (name.endsWith('.dpre.json')) entries.push(name);
+    // 현재 프로젝트의 버전 파일만 정리 (다른 프로젝트 파일은 건드리지 않음)
+    if (name.endsWith(suffix)) entries.push(name);
   }
   entries.sort().reverse(); // 최신순
   for (const name of entries.slice(VERSION_MAX)) {
@@ -6607,11 +6630,12 @@ async function pruneOldVersions(dir) {
 async function loadVersionList() {
   const dir = await _getVersionsDir(false);
   if (!dir) return [];
+  if (!_currentFileName) return [];
   const entries = [];
-  const prefix  = _currentFileName ? `_${_currentFileName}.dpre.json` : '.dpre.json';
+  const suffix  = `_${_currentFileName}.dpre.json`;
   try {
     for await (const [name] of dir.entries()) {
-      if (name.endsWith(prefix) || name.endsWith('.dpre.json')) entries.push(name);
+      if (name.endsWith(suffix)) entries.push(name);
     }
   } catch(e) { return []; }
   return entries.sort().reverse(); // 최신순
