@@ -6306,20 +6306,13 @@ function _alertFolderPickerError(e) {
 }
 
 function _showFolderPickerGuide(onConfirm) {
-  const isDrive = _storageMode === 'drive';
+  const title = '구글 드라이브 협업 폴더 만들기';
 
-  const title = isDrive ? '☁️ Google Drive 협업 폴더 선택' : '📁 저장 폴더 선택 방법';
+  const steps = `<li>내 컴퓨터에 <strong>Google Drive 데스크톱 앱</strong>이 설치되어 있어야 합니다.</li>
+     <li>파인더에서 <strong>내 컴퓨터 › Google Drive › 프로젝트용 새 폴더</strong>를 미리 만들어주세요.</li>
+     <li>폴더 선택 창에서 만든 새 폴더를 선택 후 <strong>열기</strong> 클릭.</li>`;
 
-  const steps = isDrive
-    ? `<li>Mac에 <strong>Google Drive 데스크톱 앱</strong>이 설치되어 있어야 합니다</li>
-       <li>Finder에서 <strong>Google Drive &gt; 내 드라이브</strong> 안에<br>프로젝트용 새 폴더를 미리 만들어주세요<br><span style="opacity:.6;font-size:11px">예) 내 드라이브 &gt; DontPanicPre</span></li>
-       <li>폴더 선택 창에서 만든 폴더를 선택 후 <strong>열기</strong> 클릭</li>`
-    : `<li>Finder에서 원하는 위치에 프로젝트용 새 폴더를 미리 만들어주세요<br><span style="opacity:.6;font-size:11px">예) 문서 &gt; DontPanicPre</span></li>
-       <li>폴더 선택 창에서 만든 폴더를 선택 후 <strong>열기</strong> 클릭</li>`;
-
-  const note = isDrive
-    ? `<p style="font-size:11px;opacity:.5;margin:0 0 20px">Google Drive 동기화 폴더에 저장해야 팀원과 파일을 공유하고 함께 작업할 수 있습니다.</p>`
-    : `<p style="font-size:11px;opacity:.5;margin:0 0 20px">Documents나 Desktop 같은 시스템 폴더는 직접 선택할 수 없습니다. 그 안에 새 폴더를 만들어서 선택해주세요.</p>`;
+  const note = `<p style="font-size:12px;opacity:.65;margin:0 0 20px;line-height:1.6">구글 드라이브 폴더를 공유하거나 프로젝트 파일을 공유하여<br>팀원과 함께 작업할 수 있습니다.</p>`;
 
   let modal = document.getElementById('folderGuideModal');
   if (!modal) {
@@ -6330,9 +6323,9 @@ function _showFolderPickerGuide(onConfirm) {
   }
   modal.innerHTML = `
     <div style="background:var(--bg-card,#1e1e2e);border:1px solid var(--border,#333);border-radius:16px;padding:28px 32px;max-width:380px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.5)">
-      <div style="font-size:15px;font-weight:700;margin-bottom:14px">${title}</div>
-      <ol style="font-size:13px;line-height:1.9;opacity:.85;padding-left:18px;margin:0 0 18px">${steps}</ol>
+      <div style="font-size:15px;font-weight:700;margin-bottom:10px">${title}</div>
       ${note}
+      <ol style="font-size:13px;line-height:1.9;opacity:.85;padding-left:18px;margin:0 0 20px">${steps}</ol>
       <div style="display:flex;gap:10px;justify-content:flex-end">
         <button id="folderGuideCancel" style="padding:8px 18px;border-radius:8px;border:1px solid var(--border,#444);background:transparent;color:inherit;cursor:pointer;font-size:13px">취소</button>
         <button id="folderGuideConfirm" style="padding:8px 18px;border-radius:8px;border:none;background:var(--accent,#f59e0b);color:#000;cursor:pointer;font-size:13px;font-weight:700">폴더 선택하기</button>
@@ -6685,13 +6678,10 @@ function showNewProjectModal() {
   // 저장 경로 표시 (클릭 시 폴더 변경 가능)
   const pathEl = document.getElementById('newProjectSavePath');
   if (pathEl) {
-    const isDrive = _storageMode === 'drive';
-    const npIcon = isDrive
-      ? `<svg width="13" height="13" viewBox="0 0 87.3 78" style="vertical-align:-2px;margin-right:5px"><path fill="#0066DA" d="M6.6 66.85l3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3L27.5 53H0c0 1.55.4 3.1 1.2 4.5z"/><path fill="#00AC47" d="M43.65 25L29.9 0c-1.35.8-2.5 1.9-3.3 3.3L1.2 48.5A9.13 9.13 0 0 0 0 53h27.5z"/><path fill="#EA4335" d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5H60l5.55 10.85z"/><path fill="#00832D" d="M43.65 25L57.4 0c-1.35-.8-2.95-1.2-4.5-1.2H34.4c-1.55 0-3.1.45-4.5 1.2z"/><path fill="#2684FC" d="M59.8 53H27.5L13.75 76.8c1.4.8 2.95 1.2 4.5 1.2h50.85c1.55 0 3.1-.45 4.5-1.2z"/><path fill="#FFBA00" d="M73.4 26.5l-12.25-21.2c-.8-1.4-1.95-2.5-3.3-3.3L43.65 25 59.8 53h27.45c0-1.55-.4-3.1-1.2-4.5z"/></svg>`
-      : `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:5px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
+    const folderIcon = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:5px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
     pathEl.innerHTML = _folderHandle
-      ? `${npIcon}<strong>${_folderHandle.name}</strong>`
-      : `${npIcon}<span style="opacity:.65">폴더 미선택 — 클릭해서 선택</span>`;
+      ? `${folderIcon}<strong>${_folderHandle.name}</strong>`
+      : `${folderIcon}<span style="opacity:.65">폴더 미선택 — 클릭해서 선택</span>`;
     pathEl.style.cursor = 'pointer';
     pathEl.onclick = async () => { await pickProjectFolder(); showNewProjectModal(); };
   }
