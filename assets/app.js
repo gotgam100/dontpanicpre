@@ -3,6 +3,8 @@
 // ══════════════════════════════════════════════════
 // 상수
 // ══════════════════════════════════════════════════
+const VERSION_MAX = 20;   // 프로젝트당 보관 버전 최대 개수
+
 const LINE_TYPES = {
   heading:  { cls:'l-heading',  label:'씬 헤딩' },
   action:   { cls:'l-action',   label:'지문'    },
@@ -54,7 +56,87 @@ const googleProvider = new firebase.auth.GoogleAuthProvider();
 let _currentFileName  = null;   // 현재 편집 중인 프로젝트 표시 이름
 let _currentProjectId = null;   // 현재 편집 중인 Firestore 문서 ID
 
+let _suppressSave = false;  // applyLoadedData 중 save() 무시 (무한루프 방지)
+
+// ── 커서 공유 & 역할 ─────────────────────────────────
+const CURSOR_COLORS = ['#ef4444','#f97316','#a78bfa','#22c55e','#3b82f6','#f472b6','#14b8a6','#fb923c'];
+let _cursorTimer = null;
+let _myRole = 'editor'; // 'owner' | 'editor' | 'viewer'
+
+
+// #login 해시로 진입 시 랜딩 건너뛰고 바로 로그인창 표시
+if (location.hash === '#login') {
+  localStorage.setItem('dpre-landing-v1', '1');
+  history.replaceState(null, '', location.pathname);
+}
+
+// ══════════════════════════════════════════════════
+// 랜딩 페이지
+// ══════════════════════════════════════════════════
+(function initLanding() {
+  const overlay = document.getElementById('landingOverlay');
+  if (!overlay) return;
+
+  // 이미 방문한 경우 숨김 상태 유지 (remove 하지 않음 — showLanding 재사용)
+  if (localStorage.getItem('dpre-landing-v1')) {
+    return;
+  }
+
+  _setupLandingOverlay(overlay);
+})();
+
+function _setupLandingOverlay(overlay) {
+  overlay.classList.remove('hidden', 'lp-out');
+
+  // 리빌 상태 초기화
+  overlay.querySelectorAll('.lp-reveal, .lp-hanim').forEach(el => {
+    el.classList.remove('in-view');
+  });
+
+  // 스크롤 맨 위로
+  const scroller = overlay.querySelector('#lpScroller') || document.getElementById('lpScroller');
+  if (scroller) scroller.scrollTop = 0;
+
+  // 히어로 입장 애니메이션 트리거
+  overlay.classList.remove('lp-loaded');
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    overlay.classList.add('lp-loaded');
+  }));
+
+  // IntersectionObserver — 스크롤 리빌
+  if (scroller) {
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('in-view');
+          io.unobserve(e.target);
+        }
+      });
+    }, { root: scroller, threshold: 0.18 });
+    overlay.querySelectorAll('.lp-reveal, .lp-hanim').forEach(el => io.observe(el));
+
+    // 히어로 패럴랙스
+    const heroContent = overlay.querySelector('#lpHeroContent');
+    const glow1 = overlay.querySelector('.lp-glow-1');
+    scroller.addEventListener('scroll', () => {
+      const y = scroller.scrollTop;
+      if (heroContent) {
+        heroContent.style.opacity = Math.max(0, 1 - y / 320);
+        heroContent.style.transform = `translateY(${y * 0.38}px)`;
+      }
+      if (glow1) {
+        glow1.style.transform = `translate(-50%, calc(-54% + ${y * 0.15}px))`;
+      }
+    }, { passive: true });
+  }
+}
+
 // ── Firebase Auth 상태 감지 ───────────────────────
+function _isLandingVisible() {
+  const el = document.getElementById('landingOverlay');
+  return el && !el.classList.contains('hidden');
+}
+
 auth.onAuthStateChanged(async user => {
   if (user) {
     document.getElementById('loginOverlay')?.classList.add('hidden');
@@ -67,15 +149,19 @@ auth.onAuthStateChanged(async user => {
       setEl('sidebarUserEmail', user.email || '');
       setEl('sidebarPopupName',  name);
       setEl('sidebarPopupEmail', user.email || '');
+      updateSidebarRoleBadge();
       applyProfileEmoji();
       initEmojiPicker();
     } catch(e) {
       console.error('사용자 정보 표시 오류:', e);
     }
-    showProjectsOverlay();
+    // 랜딩이 떠 있는 경우 dismissLanding()이 showProjectsOverlay를 호출하므로 여기서는 건너뜀
+    if (!_isLandingVisible()) showProjectsOverlay();
   } else {
     document.getElementById('projectsOverlay')?.classList.add('hidden');
-    document.getElementById('loginOverlay')?.classList.remove('hidden');
+    if (!_isLandingVisible()) {
+      document.getElementById('loginOverlay')?.classList.remove('hidden');
+    }
   }
 });
 
@@ -86,23 +172,111 @@ async function googleLogin() {
     await auth.signInWithPopup(googleProvider);
   } catch(e) {
     if (e.code !== 'auth/popup-closed-by-user') {
-      const err = document.getElementById('authLoginError');
-      if (err) err.textContent = firebaseErrMsg(e.code);
+      _authSetError(firebaseErrMsg(e.code));
     }
   }
   setAuthLoading(false);
 }
 
+// ── 이메일 인증 ────────────────────────────────────
+window._authMode = 'login';
+
+function switchAuthTab(mode) {
+  window._authMode = mode;
+  document.getElementById('authTabLogin')?.classList.toggle('active', mode === 'login');
+  document.getElementById('authTabSignup')?.classList.toggle('active', mode === 'signup');
+  const confirmEl = document.getElementById('authPasswordConfirm');
+  const forgotEl  = document.getElementById('authForgotBtn');
+  const submitEl  = document.getElementById('authSubmitBtn');
+  const passEl    = document.getElementById('authPassword');
+  if (confirmEl) confirmEl.style.display = mode === 'signup' ? '' : 'none';
+  if (forgotEl)  forgotEl.style.display  = mode === 'login'  ? '' : 'none';
+  if (submitEl)  submitEl.textContent    = mode === 'login'  ? '로그인' : '회원가입';
+  if (passEl)    passEl.autocomplete     = mode === 'login'  ? 'current-password' : 'new-password';
+  _authSetError('');
+}
+
+async function authSubmit() {
+  const email    = (document.getElementById('authEmail')?.value    || '').trim();
+  const password =  document.getElementById('authPassword')?.value || '';
+  if (!email || !password) { _authSetError('이메일과 비밀번호를 입력하세요'); return; }
+
+  if (window._authMode === 'signup') {
+    const confirm = document.getElementById('authPasswordConfirm')?.value || '';
+    if (password.length < 6)       { _authSetError('비밀번호는 6자 이상이어야 합니다'); return; }
+    if (password !== confirm)      { _authSetError('비밀번호가 일치하지 않습니다'); return; }
+    setAuthLoading(true);
+    try {
+      await auth.createUserWithEmailAndPassword(email, password);
+    } catch(e) { _authSetError(firebaseErrMsg(e.code)); }
+  } else {
+    setAuthLoading(true);
+    try {
+      await auth.signInWithEmailAndPassword(email, password);
+    } catch(e) { _authSetError(firebaseErrMsg(e.code)); }
+  }
+  setAuthLoading(false);
+}
+
+function showResetPanel() {
+  document.getElementById('authResetPanel').style.display = '';
+  document.getElementById('authFormDiv').style.display    = 'none';
+  document.getElementById('authTabsDiv').style.display    = 'none';
+  document.getElementById('authOrDiv').style.display      = 'none';
+  document.getElementById('authGoogleBtn').style.display  = 'none';
+  const resetEmail = document.getElementById('authResetEmail');
+  if (resetEmail) { resetEmail.value = document.getElementById('authEmail')?.value || ''; resetEmail.focus(); }
+  _authSetError('');
+}
+
+function hideResetPanel() {
+  document.getElementById('authResetPanel').style.display = 'none';
+  document.getElementById('authFormDiv').style.display    = '';
+  document.getElementById('authTabsDiv').style.display    = '';
+  document.getElementById('authOrDiv').style.display      = '';
+  document.getElementById('authGoogleBtn').style.display  = '';
+  _authSetError('');
+}
+
+async function sendResetEmail() {
+  const email = (document.getElementById('authResetEmail')?.value || '').trim();
+  if (!email) { _authSetError('이메일을 입력하세요'); return; }
+  setAuthLoading(true);
+  try {
+    await auth.sendPasswordResetEmail(email);
+    _authSetError('재설정 메일을 보냈습니다. 받은 편지함을 확인하세요.', true);
+    hideResetPanel();
+  } catch(e) {
+    _authSetError(firebaseErrMsg(e.code));
+  }
+  setAuthLoading(false);
+}
+
+function _authSetError(msg, isSuccess = false) {
+  const el = document.getElementById('authLoginError');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = isSuccess ? '#4ade80' : '';
+}
+
 // ── 계정 삭제 ────────────────────────────────────
 async function deleteAccount() {
   if (!auth.currentUser) return;
-  const email = auth.currentUser.email;
-  if (!confirm(`⚠️ 계정(${email})을 정말 삭제하시겠습니까?\n\n모든 스크립트 데이터가 영구 삭제되며\n이 작업은 되돌릴 수 없습니다.`)) return;
+  const user     = auth.currentUser;
+  const email    = user.email;
+  const provider = user.providerData[0]?.providerId;
+  if (!confirm(`⚠️ 계정(${email})을 정말 삭제하시겠습니까?\n\n모든 프로젝트 데이터가 영구 삭제되며\n이 작업은 되돌릴 수 없습니다.`)) return;
   try {
-    // Google 재인증
-    await auth.signInWithPopup(googleProvider);
-    await db.collection('users').doc(auth.currentUser.uid).delete().catch(() => {});
-    await auth.currentUser.delete();
+    if (provider === 'google.com') {
+      await auth.signInWithPopup(googleProvider);
+    } else {
+      const pw = prompt('계정 삭제 확인을 위해 비밀번호를 입력하세요:');
+      if (!pw) return;
+      const cred = firebase.auth.EmailAuthProvider.credential(email, pw);
+      await user.reauthenticateWithCredential(cred);
+    }
+    await db.collection('users').doc(user.uid).delete().catch(() => {});
+    await user.delete();
     alert('계정이 삭제되었습니다. 이용해 주셔서 감사합니다.');
   } catch(e) {
     alert(firebaseErrMsg(e.code) || '오류: ' + e.message);
@@ -112,18 +286,23 @@ async function deleteAccount() {
 // ── 로그아웃 ─────────────────────────────────────
 async function logout() {
   await presenceLeave().catch(() => {});
+
   _currentFileName = null;
   _currentProjectId = null;
   _dataLoaded = false;
   await auth.signOut();
-  ed().innerHTML = '';
+  if (window.DPEditor?.isReady()) DPEditor.setContent('');
+  else ed().innerHTML = '';
   scenes=[]; sched={}; charNotes={}; charInfo={}; manualCharsByScene={}; sceneNotes={}; sceneExtras={}; csLabels={}; globalChars=[]; charOrder=[]; hiddenChars=[]; propList=[]; costumeList=[]; pageNumberStyle=null;
   calMonth = new Date();
   document.getElementById('projectName').value = '새 프로젝트';
   document.getElementById('authorName').value  = '';
   document.getElementById('projectDate').value = '';
-  document.getElementById('authLoginError').textContent  = '';
+  _authSetError('');
   checkEditorEmpty();
+  // 랜딩 페이지로 복귀
+  localStorage.removeItem('dpre-landing-v1');
+  showLanding();
 }
 
 // ── 오류 메시지 한국어 변환 ────────────────────────
@@ -155,12 +334,28 @@ function setAuthLoading(on) {
 // 구조: projects/{projectId}  owner, memberEmails 필드로 접근 제어
 // ══════════════════════════════════════════════════
 
+// 프로젝트 문서에 내 프로필(이름+이모티콘) 저장
+// 접속 여부와 무관하게 항상 최신 프로필이 보이도록 한다
+async function _syncProfileToProject(projectId) {
+  if (!projectId || !auth.currentUser) return;
+  const user  = auth.currentUser;
+  const email = (user.email || '').toLowerCase();
+  const name  = getProfileName();
+  const emoji = localStorage.getItem(PROFILE_EMOJI_KEY()) || DEFAULT_EMOJI;
+  await db.collection('projects').doc(projectId).update({
+    [`memberProfiles.${email.replace(/\./g,'_')}`]: { name, emoji, email }
+  }).catch(() => {});
+}
+
 async function fsStoreSave(name, data) {
   const user = auth.currentUser;
   const col  = db.collection('projects');
   if (_currentProjectId) {
     await col.doc(_currentProjectId).update({
-      name, data, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      name, data,
+      updatedAt:     firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy:     user.uid,
+      updatedByName: user.displayName || user.email || '알 수 없음',
     });
   } else {
     const ref = await col.add({
@@ -179,21 +374,24 @@ async function fsStoreSave(name, data) {
 async function fsStoreListProjects() {
   const user = auth.currentUser;
   const col  = db.collection('projects');
-  const [ownedSnap, sharedSnap] = await Promise.all([
+  const [ownedSnap, sharedSnap, viewerSnap] = await Promise.all([
     col.where('owner', '==', user.uid).get(),
     col.where('memberEmails', 'array-contains', user.email).get(),
+    col.where('viewerEmails', 'array-contains', user.email).get(),
   ]);
   const ownedSet = new Set(ownedSnap.docs.map(d => d.id));
-  const toItem = (d, isOwner) => ({
+  const sharedSet = new Set(sharedSnap.docs.map(d => d.id));
+  const toItem = (d, isOwner, isViewer) => ({
     id: d.id, name: d.data().name,
     updatedAt: d.data().updatedAt?.toDate(),
     owner: d.data().owner, ownerEmail: d.data().ownerEmail || '',
     ownerName: d.data().ownerName || '', memberEmails: d.data().memberEmails || [],
-    isOwner,
+    isOwner, isViewer: isViewer || false,
   });
-  const owned  = ownedSnap.docs.map(d => toItem(d, true));
-  const shared = sharedSnap.docs.filter(d => !ownedSet.has(d.id)).map(d => toItem(d, false));
-  return [...owned, ...shared].sort((a, b) => (b.updatedAt?.getTime() || 0) - (a.updatedAt?.getTime() || 0));
+  const owned  = ownedSnap.docs.map(d => toItem(d, true, false));
+  const shared = sharedSnap.docs.filter(d => !ownedSet.has(d.id)).map(d => toItem(d, false, false));
+  const viewer = viewerSnap.docs.filter(d => !ownedSet.has(d.id) && !sharedSet.has(d.id)).map(d => toItem(d, false, true));
+  return [...owned, ...shared, ...viewer].sort((a, b) => (b.updatedAt?.getTime() || 0) - (a.updatedAt?.getTime() || 0));
 }
 
 async function fsStoreLoadProject(projectId) {
@@ -232,6 +430,132 @@ async function fsStoreRemoveMember(projectId, email) {
   await db.collection('projects').doc(projectId).update({
     memberEmails: firebase.firestore.FieldValue.arrayRemove(email.toLowerCase().trim())
   });
+}
+
+// ── 공유 코드 ────────────────────────────────────
+function _genShareCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from({length: 8}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
+
+async function fsStoreSetShareCode(projectId, code) {
+  const batch = db.batch();
+  batch.update(db.collection('projects').doc(projectId), { shareCode: code });
+  batch.set(db.collection('shareCodes').doc(code), {
+    projectId, role: 'editor',
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+  await batch.commit();
+}
+
+async function fsStoreSetViewerCode(projectId, code) {
+  const batch = db.batch();
+  batch.update(db.collection('projects').doc(projectId), { viewerCode: code });
+  batch.set(db.collection('shareCodes').doc(code), {
+    projectId, role: 'viewer',
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+  await batch.commit();
+}
+
+async function fsStoreFindByShareCode(code) {
+  const doc = await db.collection('shareCodes').doc(code.toUpperCase()).get();
+  if (!doc.exists) return null;
+  return doc.data(); // { projectId, role }
+}
+
+async function fsStoreInviteViewer(projectId, email) {
+  await db.collection('projects').doc(projectId).update({
+    viewerEmails: firebase.firestore.FieldValue.arrayUnion(email.toLowerCase().trim())
+  });
+}
+
+async function fsStoreRemoveViewer(projectId, email) {
+  await db.collection('projects').doc(projectId).update({
+    viewerEmails: firebase.firestore.FieldValue.arrayRemove(email.toLowerCase().trim())
+  });
+}
+
+// ── 참여자/열람자 코드로 프로젝트 참여 (projectsOverlay에서 호출) ──
+// 최근 프로젝트 탭의 코드 참여 — 입력값을 mine 탭 input에 복사 후 위임
+async function joinByShareCode2() {
+  const input2 = document.getElementById('joinCodeInput2');
+  const input  = document.getElementById('joinCodeInput');
+  if (input && input2) input.value = input2.value;
+  return joinByShareCode();
+}
+
+async function joinByShareCode() {
+  const input = document.getElementById('joinCodeInput');
+  const code  = (input?.value || '').trim().toUpperCase();
+  if (code.length < 6) { showToast('올바른 코드를 입력하세요'); return; }
+  const user = auth.currentUser;
+  if (!user) { showToast('로그인이 필요합니다'); return; }
+  try {
+    showToast('확인 중...');
+    const codeData = await fsStoreFindByShareCode(code);
+    if (!codeData || !codeData.projectId) { showToast('코드를 찾을 수 없습니다'); return; }
+    const { projectId, role } = codeData;
+    const isViewer = role === 'viewer';
+
+    const email = (user.email || '').toLowerCase();
+
+    // 비회원은 projects 문서를 직접 읽을 수 없으므로
+    // update 를 먼저 시도 — Firestore 규칙이 shareCode/viewerCode 기반 자기 이메일 추가를 허용
+    try {
+      if (isViewer) {
+        await db.collection('projects').doc(projectId).update({
+          viewerEmails: firebase.firestore.FieldValue.arrayUnion(email)
+        });
+      } else {
+        await db.collection('projects').doc(projectId).update({
+          memberEmails: firebase.firestore.FieldValue.arrayUnion(email)
+        });
+      }
+    } catch(updateErr) {
+      if (updateErr.code === 'permission-denied') {
+        showToast('이미 참여 중이거나 유효하지 않은 코드입니다');
+      } else {
+        showToast('참여 실패: ' + updateErr.message);
+      }
+      return;
+    }
+
+    // update 성공 → 이제 멤버/열람자이므로 읽기 가능
+    if (input) input.value = '';
+    try {
+      const projDoc = await db.collection('projects').doc(projectId).get();
+      const name = projDoc.exists ? projDoc.data().name : '프로젝트';
+      showToast(`"${name}"${isViewer ? '을(를) 열람자로 참여했습니다!' : '에 참여했습니다!'}`);
+    } catch(_) {
+      showToast('프로젝트에 참여했습니다!');
+    }
+    showProjectsOverlay();
+  } catch(e) { showToast('오류: ' + e.message); }
+}
+
+// ── 역할 판단 ─────────────────────────────────────────
+function _getMyRole(proj) {
+  if (!proj || !auth.currentUser) return 'viewer';
+  const uid   = auth.currentUser.uid;
+  const email = (auth.currentUser.email || '').toLowerCase();
+  if (proj.owner === uid) return 'owner';
+  if ((proj.memberEmails  || []).includes(email)) return 'editor';
+  if ((proj.viewerEmails  || []).includes(email)) return 'viewer';
+  return 'viewer';
+}
+
+function updateSidebarRoleBadge() {
+  const el = document.getElementById('sidebarUserRole');
+  if (!el) return;
+  const meta = {
+    owner:  { label: '소유자', cls: 'role-owner' },
+    editor: { label: '참여자', cls: 'role-editor' },
+    viewer: { label: '열람자', cls: 'role-viewer' },
+  }[_myRole] || { label: '', cls: '' };
+  el.textContent = meta.label;
+  el.className = `sidebar-user-role ${meta.cls}`.trim();
+  el.style.display = meta.label ? '' : 'none';
 }
 
 async function fsStoreSaveVersion(name, data) {
@@ -285,24 +609,28 @@ function _renderFsProjectList(projects) {
 
   listEl.innerHTML = projects.map((p, i) => {
     const memberCount = p.memberEmails?.length || 0;
-    const sharedBadge = !p.isOwner
-      ? `<span class="fbi-shared-badge">공유됨</span>`
-      : memberCount > 0
-        ? `<span class="fbi-member-badge">👥 ${memberCount}</span>`
-        : '';
+    const roleBadge = p.isViewer
+      ? `<span class="fbi-shared-badge fbi-viewer-badge">열람자</span>`
+      : !p.isOwner
+        ? `<span class="fbi-shared-badge">공유됨</span>`
+        : memberCount > 0
+          ? `<span class="fbi-member-badge">👥 ${memberCount}</span>`
+          : '';
     const ownerLabel = !p.isOwner
       ? `<span class="fbi-owner-label">${esc(p.ownerName || p.ownerEmail || '공유')}</span>`
       : '';
+    // 열람자는 설정 기어 아이콘 숨김
+    const actionBtn = !p.isViewer
+      ? `<button class="fbi-action-btn" title="프로젝트 관리" onclick="showProjectManage('${p.id}',event)">${gearSvg}</button>`
+      : '';
     return `
-      <div class="folder-browse-item fbi-drive-item">
-        <span class="fbi-icon">📄</span>
+      <div class="folder-browse-item fbi-drive-item" onclick="openFsProject(${i})">
+        <span class="fbi-icon">🎬</span>
         <div class="fbi-main">
-          <span class="fbi-name fbi-open-link" onclick="openFsProject(${i})">${esc(p.name)}</span>
-          <div class="fbi-meta">${ownerLabel}${sharedBadge}</div>
+          <span class="fbi-name fbi-open-link">${esc(p.name)}</span>
+          <div class="fbi-meta">${ownerLabel}${roleBadge}</div>
         </div>
-        <span class="fbi-actions">
-          <button class="fbi-action-btn" title="프로젝트 관리" onclick="showProjectManage('${p.id}',event)">${gearSvg}</button>
-        </span>
+        <span class="fbi-actions">${actionBtn}</span>
         <span class="fbi-date">${_fmtModified(p.updatedAt?.getTime())}</span>
       </div>`;
   }).join('');
@@ -313,13 +641,17 @@ async function openFsProject(idx) {
   if (!p) return;
   showToast('불러오는 중...');
   try {
-    const data = await fsStoreLoadProject(p.id);
+    const proj = await fsStoreGetProject(p.id);
+    _myRole = _getMyRole(proj);
+    updateSidebarRoleBadge();
     _currentProjectId = p.id;
     _currentFileName  = p.name;
     document.getElementById('projectsOverlay')?.classList.add('hidden');
     switchTab('editor', document.querySelector('.nav-btn'));
-    await applyLoadedData(data);
+    await applyLoadedData(proj.data || {});
     addRecentProject(p.name, p.id);
+
+    _syncProfileToProject(p.id);
   } catch(e) { showToast('불러오기 오류: ' + e.message); }
 }
 
@@ -359,22 +691,10 @@ async function _pmRefresh() {
 
     const nameEl = document.getElementById('pmProjectName');
     if (nameEl) nameEl.textContent = proj.name;
-    const ownerEl = document.getElementById('pmOwnerRow');
-    if (ownerEl) ownerEl.innerHTML = `
-      <span class="pm-member-avatar">👑</span>
-      <div class="pm-member-info">
-        <div class="pm-member-name">${esc(proj.ownerName || proj.ownerEmail || '소유자')}${proj.owner === user.uid ? ' <span class="pm-badge-me">나</span>' : ''}</div>
-        <div class="pm-member-email">${esc(proj.ownerEmail || '')}</div>
-      </div>
-      <span class="pm-online-dot" id="pmOwnerDot"></span>`;
 
-    document.getElementById('pmInviteRow').style.display  = _pmIsOwner ? '' : 'none';
     document.getElementById('pmDangerZone').style.display = _pmIsOwner ? '' : 'none';
     document.getElementById('pmLeaveZone').style.display  = !_pmIsOwner ? '' : 'none';
-    document.getElementById('pmRenameRow').style.display  = _pmIsOwner ? '' : 'none';
-    const ri = document.getElementById('pmRenameInput');
-    if (ri) ri.value = proj.name;
-    _pmRenderMembers();
+    _pmRenderMembers(); // 소유자 행도 여기서 presence 기반 렌더링
   } catch(e) { showToast('불러오기 오류: ' + e.message); }
 }
 
@@ -383,25 +703,9 @@ function _pmRenderMembers() {
   if (!proj) return;
   const user  = auth.currentUser;
   const now   = Date.now();
-  const emails = proj.memberEmails || [];
 
-  // 소유자 presence 표시
-  const ownerDot = document.getElementById('pmOwnerDot');
-  if (ownerDot) {
-    const ownerPresence = _pmPresenceData[proj.owner];
-    const ownerOnline = ownerPresence && (now - ownerPresence.updatedAt < 120000);
-    ownerDot.className = 'pm-online-dot ' + (ownerOnline ? 'online' : '');
-  }
-
-  const countEl = document.getElementById('pmMemberCount');
-  if (countEl) countEl.textContent = emails.length ? `(${emails.length}명)` : '';
-
-  const listEl = document.getElementById('pmMemberList');
-  if (!listEl) return;
-  if (!emails.length) {
-    listEl.innerHTML = '<div class="pm-empty">아직 초대된 팀원이 없습니다</div>';
-    return;
-  }
+  const gridEl = document.getElementById('pmMemberGrid');
+  if (!gridEl) return;
 
   // presence에서 email 매핑
   const presenceByEmail = {};
@@ -409,25 +713,55 @@ function _pmRenderMembers() {
     if (v.email) presenceByEmail[v.email.toLowerCase()] = v;
   });
 
-  listEl.innerHTML = emails.map(email => {
+  function _mkCard(email, type, removeFn) {
     const pData   = presenceByEmail[email.toLowerCase()];
     const isOnline= pData && (now - pData.updatedAt < 120000);
-    const name    = pData?.name || email.split('@')[0];
-    const emoji   = pData?.emoji || '👤';
+    const profileKey = email.toLowerCase().replace(/\./g, '_');
+    const profile = proj.memberProfiles?.[profileKey];
     const isMe    = email.toLowerCase() === (user.email || '').toLowerCase();
-    const removeBtn = _pmIsOwner && !isMe
-      ? `<button class="pm-remove-btn" onclick="pmRemoveMember('${esc(email)}')">제거</button>`
+    const name    = isMe ? getProfileName() : (profile?.name || pData?.name || email.split('@')[0]);
+    const emoji   = isMe ? (localStorage.getItem(PROFILE_EMOJI_KEY()) || DEFAULT_EMOJI)
+                         : (profile?.emoji || pData?.emoji || '👤');
+    const removeBtn = removeFn && !isMe
+      ? `<button class="mc-remove-btn" title="제거" onclick="${removeFn}('${esc(email)}')">×</button>`
       : '';
-    return `<div class="pm-member-row">
-      <span class="pm-member-avatar">${emoji}</span>
-      <div class="pm-member-info">
-        <div class="pm-member-name">${esc(name)}${isMe ? ' <span class="pm-badge-me">나</span>' : ''}</div>
-        <div class="pm-member-email">${esc(email)}</div>
-      </div>
-      <span class="pm-online-dot ${isOnline ? 'online' : ''}"></span>
+    return `<div class="mc-card ${type}">
       ${removeBtn}
+      <span class="mc-card-dot ${type} ${isOnline ? 'online' : ''}"></span>
+      <span class="mc-emoji">${emoji}</span>
+      <div class="mc-name">${esc(name)}</div>
+      ${isMe ? '<span class="mc-me-badge">나</span>' : ''}
     </div>`;
-  }).join('');
+  }
+
+  // 소유자 카드 (이메일 없음)
+  const op = _pmPresenceData[proj.owner];
+  const ownerOnline = op && (now - op.updatedAt < 120000);
+  const ownerProfileKey = (proj.ownerEmail || '').toLowerCase().replace(/\./g, '_');
+  const ownerProfile = proj.memberProfiles?.[ownerProfileKey];
+  const ownerEmoji = (proj.owner === user.uid)
+    ? (localStorage.getItem(PROFILE_EMOJI_KEY()) || ownerProfile?.emoji || '👤')
+    : (ownerProfile?.emoji || op?.emoji || '👤');
+  const ownerName = (proj.owner === user.uid)
+    ? getProfileName()
+    : (ownerProfile?.name || op?.name || proj.ownerName || proj.ownerEmail || '소유자');
+  const ownerIsMe = proj.owner === user.uid;
+  const ownerCard = `<div class="mc-card owner">
+    <span class="mc-card-dot owner ${ownerOnline ? 'online' : ''}"></span>
+    <span class="mc-emoji">${ownerEmoji}</span>
+    <div class="mc-name">${esc(ownerName)}</div>
+    ${ownerIsMe ? '<span class="mc-me-badge">나</span>' : ''}
+  </div>`;
+
+  const ownerEmailLower = (proj.ownerEmail || '').toLowerCase();
+  const memberCards = (proj.memberEmails || [])
+    .filter(e => e.toLowerCase() !== ownerEmailLower)
+    .map(e => _mkCard(e, 'member', 'pmRemoveMember')).join('');
+  const viewerCards = (proj.viewerEmails || [])
+    .filter(e => e.toLowerCase() !== ownerEmailLower)
+    .map(e => _mkCard(e, 'viewer', 'pmRemoveViewer')).join('');
+
+  gridEl.innerHTML = ownerCard + memberCards + viewerCards;
 }
 
 async function pmInviteMember() {
@@ -435,7 +769,7 @@ async function pmInviteMember() {
   const email = (input?.value || '').trim().toLowerCase();
   if (!email || !email.includes('@')) { showToast('올바른 이메일을 입력하세요'); return; }
   if (email === (auth.currentUser.email || '').toLowerCase()) { showToast('본인은 이미 소유자입니다'); return; }
-  if (_pmCurrentProj?.memberEmails?.includes(email)) { showToast('이미 초대된 팀원입니다'); return; }
+  if (_pmCurrentProj?.memberEmails?.includes(email)) { showToast('이미 초대된 참여자입니다'); return; }
   try {
     await fsStoreInviteMember(_pmProjectId, email);
     // local 캐시 즉시 반영
@@ -449,11 +783,12 @@ async function pmInviteMember() {
 }
 
 async function pmRemoveMember(email) {
-  if (!confirm(`"${email}" 팀원을 제거하시겠습니까?`)) return;
+  if (!confirm(`"${email}" 참여자를 제거하시겠습니까?`)) return;
   try {
     await fsStoreRemoveMember(_pmProjectId, email);
-    if (_pmCurrentProj) _pmCurrentProj.memberEmails = (_pmCurrentProj.memberEmails || []).filter(e => e !== email);
-    showToast('팀원 제거 완료');
+    showToast('참여자 제거 완료');
+    // Firestore에서 재조회하여 최신 상태 반영
+    _pmCurrentProj = await fsStoreGetProject(_pmProjectId);
     _pmRenderMembers();
   } catch(e) { showToast('제거 실패: ' + e.message); }
 }
@@ -521,12 +856,19 @@ let pageNumberStyle   = null;     // null | 'single' | 'total'
 let _pendingInsertRange = null;   // 인서트씬 등록 모달 대기 중 Range
 let _pendingInsertMarkerId = null; // 모달 열기 전 삽입된 span 추적 ID
 
+const ensureArray = v => Array.isArray(v) ? v : [];
+function normalizeListState() {
+  propList = ensureArray(propList);
+  costumeList = ensureArray(costumeList);
+}
+
 // ── 앱 레벨 Undo 스택 ─────────────────────────────────
 let undoStack = [];
 const MAX_UNDO = 40;
 let _applyingUndo = false;  // undo 중 rename 감지 억제 플래그
 
 function captureState() {
+  normalizeListState();
   return {
     html:              ed().innerHTML,
     sceneExtras:       JSON.parse(JSON.stringify(sceneExtras)),
@@ -565,8 +907,8 @@ function applyUndo() {
   hiddenChars            = snap.hiddenChars;
   locationInfo           = snap.locationInfo;
   locationOrder          = snap.locationOrder;
-  propList               = snap.propList || [];
-  costumeList            = snap.costumeList || [];
+  propList               = ensureArray(snap.propList);
+  costumeList            = ensureArray(snap.costumeList);
   pageNumberStyle        = snap.pageNumberStyle || null;
   // 리파싱 + 렌더 (rename 감지 억제)
   _applyingUndo = true;
@@ -649,6 +991,10 @@ function makePara(type, text) {
 }
 
 function moveCursorTo(el, selectAll) {
+  if (window.DPEditor?.isReady()) {
+    DPEditor.moveCursorToDOM(el, selectAll);
+    return;
+  }
   const range = document.createRange();
   const sel   = window.getSelection();
   if (selectAll && el.firstChild && el.firstChild.nodeType !== Node.ELEMENT_NODE)
@@ -661,6 +1007,12 @@ function moveCursorTo(el, selectAll) {
 
 // Ctrl+1~4: 현재 줄 유형 변경
 function setLineType(type) {
+  if (window.DPEditor?.isReady()) {
+    DPEditor.setNodeType(type);
+    refreshTypeUI();
+    return;
+  }
+  // ProseMirror 미준비 시 폴백 (contentEditable 직접 조작)
   ed().focus();
   let p = getCurrentP();
   if (!p) {
@@ -671,7 +1023,6 @@ function setLineType(type) {
     refreshTypeUI(); onEditorInput();
     return;
   }
-  // 현재 단락의 class/data-type만 교체 (내용·커서 유지)
   pushUndo();
   p.dataset.type = type;
   p.className = LINE_TYPES[type]?.cls || 'l-action';
@@ -866,12 +1217,12 @@ function _getDigit(e) {
 }
 
 function editorKeyDown(e) {
+  // ProseMirror가 활성화되면 모든 키 처리를 PM 플러그인에 위임
+  if (window.DPEditor?.isReady()) return;
   if (e.key === 'Enter') { e.preventDefault(); handleEnter(); }
-  // Backspace/Delete: 브라우저 기본 처리 후 즉시 페이지 경계 재조정 (플래시 방지)
   if (e.key === 'Backspace' || e.key === 'Delete') {
     requestAnimationFrame(adjustPageBreaks);
   }
-  // 숫자 단축키는 capture 리스너에서 처리 (브라우저 탭 전환 우선순위 회피)
 }
 
 // window capture 단계에서 Cmd/Ctrl+숫자 가로채기
@@ -915,7 +1266,9 @@ window.addEventListener('keydown', function(e) {
 }, { capture: true });
 
 // ── 씬번호 자동 재매김 ─────────────────────────────
+// ProseMirror 모드에서는 DOM 직접 조작 불가 → appendTransaction 방식으로 추후 구현 예정
 function autoRenumberHeadings() {
+  if (window.DPEditor?.isReady()) return;
   const sel = window.getSelection();
   const curNode = sel && sel.rangeCount ? sel.getRangeAt(0).startContainer : null;
   const paras = [...ed().querySelectorAll('p')];
@@ -951,8 +1304,10 @@ function extractSceneNum(headingText) {
 }
 
 // ── 외부 붙여넣기 처리 ──────────────────────────────
-// 구글 문서 등에서 복사 시 HTML 서식을 제거하고 줄 단위로 각 <p> 생성
+// ProseMirror 활성 시: editor.js의 transformPastedText/transformPastedHTML이 처리.
+// 폴백(PM 미준비): 기존 contentEditable 로직.
 function editorPaste(e) {
+  if (window.DPEditor?.isReady()) return;
   e.preventDefault();
   const text = (e.clipboardData || window.clipboardData).getData('text/plain');
   if (!text) return;
@@ -1004,6 +1359,8 @@ function editorPaste(e) {
 }
 
 // ── 파싱 ──────────────────────────────────────────
+let _inputRenderTimer = null; // 무거운 탭 렌더 디바운스 타이머
+
 function onEditorInput() {
   // 인물 rename 감지: 이전 인물 목록 스냅샷
   const prevChars = allSceneChars();
@@ -1039,11 +1396,15 @@ function onEditorInput() {
     }
   }
 
-  // 열려 있는 탭 즉시 갱신
-  if (document.getElementById('tab-chars')?.classList.contains('on'))      renderCharTab();
-  if (document.getElementById('tab-scenebd')?.classList.contains('on'))    renderSceneBd();
-  if (document.getElementById('tab-breakdown')?.classList.contains('on'))  renderBreakdown();
+  // 무거운 탭 렌더는 300ms 디바운스 — 원격 Yjs 키스트로크마다 실행되지 않도록
+  clearTimeout(_inputRenderTimer);
+  _inputRenderTimer = setTimeout(() => {
+    if (document.getElementById('tab-chars')?.classList.contains('on'))      renderCharTab();
+    if (document.getElementById('tab-scenebd')?.classList.contains('on'))    renderSceneBd();
+    if (document.getElementById('tab-breakdown')?.classList.contains('on'))  renderBreakdown();
+  }, 300);
 
+  _sendCursorPosition();
   save();
 }
 
@@ -1071,9 +1432,7 @@ function updatePageBreaks() {
     }
   }
   for (let y = A4_PAGE_H; y < totalPages * A4_PAGE_H; y += A4_PAGE_H) {
-    const page = Math.round(y / A4_PAGE_H) + 1;
-    html += `<div class="page-break-line" style="top:${y}px">` +
-            `<span class="page-break-num">${page}쪽</span></div>`;
+    html += `<div class="page-break-line" style="top:${y}px"></div>`;
   }
   layer.innerHTML = html;
 
@@ -1097,10 +1456,15 @@ function updatePageBreaks() {
 // 구분선 밴드(52px, 위아래 26px)에 걸치는 단락을 다음 페이지로 밀어냄
 let _pbAdjustTimer = null;
 function scheduleAdjustPageBreaks() {
+  if (window.DPEditor?.isReady()) return; // PM 모드에서는 DOM 직접 조작 금지
   clearTimeout(_pbAdjustTimer);
   _pbAdjustTimer = setTimeout(adjustPageBreaks, 50);
 }
 function adjustPageBreaks() {
+  // ProseMirror 모드에서는 PM이 DOM을 직접 관리하므로
+  // 단락에 style.marginTop을 주입하면 MutationObserver 루프가 발생한다.
+  // pageBreakLayer(오버레이)만 사용하므로 여기서 종료.
+  if (window.DPEditor?.isReady()) return;
   const editor = document.getElementById('scriptEditor');
   if (!editor) return;
   const paras = [...editor.querySelectorAll('p')];
@@ -1138,6 +1502,7 @@ function adjustPageBreaks() {
 }
 
 function normalizeEditor() {
+  if (window.DPEditor?.isReady()) return; // ProseMirror이 DOM 직접 관리
   [...ed().childNodes].forEach(node => {
     if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
       const p = makePara('action', node.textContent);
@@ -1193,6 +1558,7 @@ function parseFromEditor() {
       p.dataset.sceneNum = `${seq}_ins${insSeqMap[seq]}`;
       p.dataset.parentSceneNum = seq;
     } else if (seq > 0) {
+      p.dataset.sceneNum = seq;
       // 신규: 단락 내 elem-insert 스팬 감지
       p.querySelectorAll('span.elem-insert').forEach(span => {
         insSeqMap[seq] = (insSeqMap[seq] || 0) + 1;
@@ -1361,9 +1727,12 @@ function extractLoc(l) {
 }
 
 function refreshTypeUI() {
-  const type = getCurrentP()?.dataset.type || null;
+  const type = window.DPEditor?.isReady()
+    ? DPEditor.getCurrentType()
+    : (getCurrentP()?.dataset.type || null);
   document.querySelectorAll('.t-btn[data-type]').forEach(btn =>
     btn.classList.toggle('active-type', btn.dataset.type === type));
+  _sendCursorPosition();
 }
 
 // ── 왼쪽 사이드바: 프로젝트 제목 + 씬리스트 ────────────────
@@ -1372,7 +1741,9 @@ function startEditProjectName() {
   const input  = document.getElementById('projectName');
   if (!nameEl || !input) return;
 
-  const current = input.value || '';
+  const current = _currentFileName || input.value || '';
+  // hidden input도 currentFileName과 동기화 (out-of-sync 방지)
+  if (_currentFileName && input.value !== _currentFileName) input.value = _currentFileName;
   nameEl.contentEditable = 'true';
   nameEl.textContent = current;
   nameEl.focus();
@@ -1386,12 +1757,17 @@ function startEditProjectName() {
   sel.addRange(range);
 
   function commit() {
-    const val = nameEl.textContent.trim() || '새 프로젝트';
+    const val = nameEl.textContent.trim() || _currentFileName || '새 프로젝트';
     nameEl.contentEditable = 'false';
     input.value = val;
+    _currentFileName = val; // 항상 동기화
+    nameEl.textContent = val; // 표시도 즉시 확정
     input.dispatchEvent(new Event('input', { bubbles: true }));
     nameEl.removeEventListener('blur', commit);
     nameEl.removeEventListener('keydown', onKey);
+    // 이름이 바뀐 경우 Firestore 저장 + 최근목록 반영
+    save();
+    if (_currentProjectId) addRecentProject(val, _currentProjectId);
   }
   function onKey(e) {
     if (e.key === 'Enter') { e.preventDefault(); commit(); }
@@ -1402,10 +1778,10 @@ function startEditProjectName() {
 }
 
 function renderLeftSidebar() {
-  // 프로젝트 제목
+  // 프로젝트 제목 — _currentFileName을 우선, 없으면 hidden input 값 사용
   const nameEl = document.getElementById('sidebarProjectLabel');
-  const projectName = document.getElementById('projectName')?.value || '제목 없음';
-  if (nameEl && !nameEl.isContentEditable) { nameEl.textContent = projectName; nameEl.title = '클릭해서 프로젝트명 수정'; }
+  const projectName = _currentFileName || document.getElementById('projectName')?.value || '제목 없음';
+  if (nameEl && !nameEl.isContentEditable) { nameEl.textContent = projectName; nameEl.title = '클릭해서 프로젝트 이름 수정'; }
 
   const nav = document.getElementById('sidebarSceneNav');
   if (!nav) return;
@@ -1437,6 +1813,16 @@ function renderLeftSidebar() {
   }).join('');
 }
 
+// ProseMirror 모드 전용: getBoundingClientRect 기준 scrollTop 직접 대입
+function pmScrollToEl(el, offset = 80) {
+  const wrap = document.getElementById('editorScrollWrap');
+  if (!wrap) { el.scrollIntoView({ block: 'start' }); return; }
+  const elRect   = el.getBoundingClientRect();
+  const wrapRect = wrap.getBoundingClientRect();
+  const newTop   = wrap.scrollTop + (elRect.top - wrapRect.top) - offset;
+  wrap.scrollTop = Math.max(0, newTop);
+}
+
 function scrollToSceneHeading(heading, { smooth = true } = {}) {
   const scrollWrap = document.querySelector('.editor-scroll-wrap');
   if (!scrollWrap) { heading.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
@@ -1449,6 +1835,15 @@ function scrollToSceneHeading(heading, { smooth = true } = {}) {
 
 function sidebarGoToScene(sceneNum) {
   switchTab('editor', document.querySelectorAll('.nav-btn')[0]);
+  if (window.DPEditor?.isReady() && typeof sceneNum === 'number') {
+    // ProseMirror 모드: PM 문서에서 N번째 heading 노드를 직접 탐색
+    const headingEl = DPEditor.goToHeading(sceneNum);
+    if (headingEl) {
+      setTimeout(() => pmScrollToEl(headingEl), 80);
+    }
+    return;
+  }
+  // 폴백: contentEditable / insert 씬
   const heading = ed().querySelector(`[data-scene-num="${sceneNum}"]`);
   if (!heading) return;
   scrollToSceneHeading(heading);
@@ -1576,6 +1971,15 @@ function renderSidebar() {
 // 씬 클릭 → 에디터 스크롤 + 커서 이동
 function scrollToScene(sceneNum) {
   switchTab('editor', document.querySelectorAll('.nav-btn')[0]);
+  // sceneNum이 문자열 숫자('1', '2'...)로 올 수 있으므로 Number 변환
+  const seq = Number(sceneNum);
+  if (window.DPEditor?.isReady() && Number.isInteger(seq) && seq > 0) {
+    const headingEl = DPEditor.goToHeading(seq);
+    if (headingEl) {
+      setTimeout(() => pmScrollToEl(headingEl), 80);
+    }
+    return;
+  }
   const heading = ed().querySelector(`[data-scene-num="${sceneNum}"]`);
   if (!heading) return;
   scrollToSceneHeading(heading);
@@ -1633,15 +2037,18 @@ function loadSample() {
     ['heading','S#6. EXT. 한강 산책로 - 낮'],
     ['action','맑은 낮, 강변을 걷는 지영. 손에 작은 봉투가 들려있다.'],
   ];
-  ed().innerHTML = data.map(([type, text]) =>
+  const html = data.map(([type, text]) =>
     `<p class="${LINE_TYPES[type].cls}" data-type="${type}">${esc(text)}</p>`
   ).join('');
+  if (window.DPEditor?.isReady()) DPEditor.setContent(html);
+  else ed().innerHTML = html;
   onEditorInput();
 }
 
 function clearAll() {
   if (!confirm('스크립트를 모두 지우시겠습니까?\n(인물 정보·씬 메모·촬영 스케줄·일촬표도 함께 초기화됩니다)')) return;
-  ed().innerHTML = '';
+  if (window.DPEditor?.isReady()) DPEditor.setContent('');
+  else ed().innerHTML = '';
   manualCharsByScene = {};
   sceneNotes        = {};
   sceneExtras       = {};
@@ -2128,6 +2535,7 @@ function removeManualChar(sceneNum, name) {
 // ── 인서트 씬 추가 (스팬 방식) ──────────────────────────────────
 function getTopLevelEditorPara(node) {
   if (!node) return null;
+  if (node === ed()) return null;
   if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
   while (node && node.parentElement !== ed()) node = node.parentElement;
   return node?.tagName === 'P' ? node : null;
@@ -2320,16 +2728,31 @@ document.addEventListener('selectionchange', refreshElemTagUI);
 
 function getSceneNumFromSelection(sel) {
   if (!sel || !sel.rangeCount) return null;
-  let node = sel.getRangeAt(0).startContainer;
-  if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
-  while (node && node.parentElement !== ed()) node = node.parentElement;
+  const range = sel.getRangeAt(0);
+  let node = range.startContainer;
+  let para = getTopLevelEditorPara(node);
+  if (!para && range.commonAncestorContainer !== range.startContainer) {
+    para = getTopLevelEditorPara(range.commonAncestorContainer);
+  }
+  if (!para) {
+    const parasInSelection = getSelectedEditorParas(range);
+    para = parasInSelection[0] || null;
+  }
+  node = para;
   if (!node) return null;
+
   if (node.dataset.insertId && node.dataset.sceneNum) {
     const sc = scenes.find(s => String(s.number) === String(node.dataset.sceneNum));
     return sc ? sc.number : node.dataset.sceneNum;
   }
+  if (node.dataset.sceneNum) {
+    const sc = scenes.find(s => String(s.number) === String(node.dataset.sceneNum));
+    if (sc) return sc.number;
+  }
+
   const paras = [...ed().querySelectorAll('p')];
   const idx = paras.indexOf(node);
+  if (idx < 0) return null;
   for (let i = idx; i >= 0; i--) {
     const t = paras[i].dataset.type || guessType(paras[i].textContent);
     if (t === 'heading' || t === 'insert') {
@@ -2385,7 +2808,11 @@ function addSceneElement(type, btn) {
     if (type !== 'location') removeFromListField(snum, ITEMS_TO_LIST[field], spanText);
     if (type === 'charProp' || type === 'setProp') removePropFromList(spanText, type);
     if (type === 'costume' || type === 'makeup') removeCostumeFromList(spanText, type);
-    activeSpan.replaceWith(...activeSpan.childNodes);
+    if (window.DPEditor?.isReady()) {
+      window.DPEditor.removeElemTagSpan(activeSpan);
+    } else {
+      activeSpan.replaceWith(...activeSpan.childNodes);
+    }
     sel?.removeAllRanges();
     flashBtn(btn);
     save();
@@ -2397,8 +2824,10 @@ function addSceneElement(type, btn) {
   if (!text) { alert((LABEL[type]||type) + '으로 등록할 텍스트를 드래그하여 선택해주세요.'); return; }
   const snum = getSceneNumFromSelection(sel);
   if (!snum) { alert('씬 안의 텍스트를 선택해주세요.'); return; }
-  // 하이라이트용 range 미리 저장 (DOM 조작 전에 cloneRange 필수)
-  const savedRange = (sel.rangeCount > 0 && !sel.isCollapsed) ? sel.getRangeAt(0).cloneRange() : null;
+  // PM 모드: 선택 범위를 미리 저장 (이후 조작에서 선택이 풀리기 전)
+  const pmSel = window.DPEditor?.isReady() ? window.DPEditor.pmSelectionRange?.() : null;
+  // 레거시 모드: 하이라이트용 range 미리 저장
+  const savedRange = (!pmSel && sel.rangeCount > 0 && !sel.isCollapsed) ? sel.getRangeAt(0).cloneRange() : null;
   if (!sceneExtras[snum]) sceneExtras[snum] = {};
   const field = FIELD[type];
   if (!sceneExtras[snum][field]) sceneExtras[snum][field] = [];
@@ -2425,7 +2854,11 @@ function addSceneElement(type, btn) {
 
   // ── 신규 등록 ────────────────────────────────────────────
   pushUndo();
-  sceneExtras[snum][field].push({ text, fromEditor: true }); // fromEditor: span 삭제 시 자동 제거 감지용
+  _lastElemRegTime = Date.now(); // syncElemTagsFromEditor 오탐 방지
+  // PM 모드에서는 fromEditor: false — PM 마크는 하이라이트용이고 데이터는 sceneExtras에서 독립 관리
+  // 레거시 contentEditable 모드에서만 fromEditor: true (span 삭제 시 자동 제거)
+  const item = { text, fromEditor: !window.DPEditor?.isReady() };
+  sceneExtras[snum][field].push(item);
   if (type !== 'location') appendToListField(snum, ITEMS_TO_LIST[field], text);
 
   // 소품리스트 동기화 (charProp/setProp 추가 시)
@@ -2456,16 +2889,25 @@ function addSceneElement(type, btn) {
         locationInfo[loc].setPropItems.push(text);
     });
   }
-  // 선택 텍스트에 컬러 하이라이트 span 삽입
-  if (savedRange) {
+  // 선택 텍스트에 컬러 하이라이트 적용
+  let highlighted = false;
+  if (pmSel) {
+    // PM 모드: addMark 트랜잭션으로 elemTag 마크 적용
+    window.DPEditor.applyElemTag(type, pmSel.from, pmSel.to);
+    highlighted = true;
+  } else if (!window.DPEditor?.isReady() && savedRange) {
+    // 레거시 모드 전용: 직접 span 삽입 (PM 모드에서는 DOM 직접 조작 안 함)
     try {
       const span = document.createElement('span');
       span.className = `elem-tag elem-${type}`;
       span.dataset.elemType = type;
       span.appendChild(savedRange.extractContents());
       savedRange.insertNode(span);
+      highlighted = true;
     } catch(e) { /* 단락 경계 걸친 선택 — 무시 */ }
   }
+  // 레거시 모드에서만 하이라이트 실패 시 fromEditor: false (PM은 이미 false로 설정됨)
+  if (!highlighted && !window.DPEditor?.isReady()) item.fromEditor = false;
   flashBtn(btn);
   save();
   if (document.getElementById('tab-scenebd')?.classList.contains('on')) renderSceneBd();
@@ -2514,6 +2956,7 @@ const FIELD_TO_TYPE = {
 };
 
 let _elemTagSyncTimer = null;
+let _lastElemRegTime  = 0; // addSceneElement() 마지막 호출 시각 (syncElemTagsFromEditor 오탐 방지)
 function scheduleElemTagSync() {
   clearTimeout(_elemTagSyncTimer);
   _elemTagSyncTimer = setTimeout(syncElemTagsFromEditor, 400);
@@ -2522,6 +2965,8 @@ function scheduleElemTagSync() {
 // 에디터 내 elem-tag span 현황을 sceneExtras와 동기화
 // fromEditor: true 항목 중 span이 사라진 것을 자동 제거
 function syncElemTagsFromEditor() {
+  // 요소 등록 직후 3초 이내에는 실행하지 않음 (PM/Yjs 안정화 대기)
+  if (Date.now() - _lastElemRegTime < 3000) return;
   // 1. 에디터에 현재 존재하는 span 수집: { snum -> { type -> Set<text> } }
   const present = {};
   const paras   = [...ed().querySelectorAll('p')];
@@ -2580,9 +3025,32 @@ function syncElemTagsFromEditor() {
   }
 }
 
-// 에디터에서 특정 씬의 elem-tag span 제거 (텍스트 노드로 언래핑)
+// 에디터에서 특정 씬의 elem-tag span 제거
 function removeElemSpanFromEditor(snum, type, text) {
-  const paras = [...ed().querySelectorAll('p')];
+  const edEl = ed();
+  if (!edEl) return;
+
+  if (window.DPEditor?.isReady()) {
+    // PM 모드: PM이 렌더한 span DOM을 찾아 removeElemTagSpan으로 제거
+    const paras = [...edEl.querySelectorAll('p')];
+    let inScene = false;
+    for (const p of paras) {
+      const isTargetScene = String(p.dataset.sceneNum) === String(snum);
+      const pType = p.dataset.type || guessType(p.textContent);
+      if (pType === 'heading') { inScene = isTargetScene; continue; }
+      if (!isTargetScene && !inScene) continue;
+      for (const span of p.querySelectorAll(`span.elem-${type}`)) {
+        if (span.textContent.trim() === text.trim()) {
+          window.DPEditor.removeElemTagSpan(span);
+          return;
+        }
+      }
+    }
+    return;
+  }
+
+  // 레거시 모드: 직접 DOM 조작
+  const paras = [...edEl.querySelectorAll('p')];
   let inScene = false;
   for (const p of paras) {
     if (String(p.dataset.sceneNum) === String(snum)) {
@@ -4671,16 +5139,13 @@ function insertExample() {
     { type: 'char',     text: '준호' },
     { type: 'dialogue', text: '그래. 우리에겐 Don\'t panic pre가 있었지!' },
   ];
-  ed().innerHTML = '';
   sched     = {};
   schedDays = {};
-  lines.forEach(l => {
-    const p = document.createElement('p');
-    p.dataset.type = l.type;
-    p.className    = LINE_TYPES[l.type]?.cls || 'l-action';
-    p.textContent  = l.text;
-    ed().appendChild(p);
-  });
+  const html = lines.map(l =>
+    `<p class="${LINE_TYPES[l.type]?.cls || 'l-action'}" data-type="${l.type}">${esc(l.text)}</p>`
+  ).join('');
+  if (window.DPEditor?.isReady()) DPEditor.setContent(html);
+  else { ed().innerHTML = ''; ed().innerHTML = html; }
   onEditorInput();
   save();
 }
@@ -4732,6 +5197,7 @@ function switchTab(id, btn) {
   if(id==='proplist')     renderPropList();
   if(id==='costumelist')  renderCostumeList();
   if(id==='info')         refreshSettingsTab();
+  if(id==='projinfo')     refreshProjInfoSection();
 }
 function refreshSettingsTab() {
   const bc = document.getElementById('stgBreadcrumb');
@@ -4747,6 +5213,337 @@ function refreshSettingsTab() {
   }
   bc.innerHTML = parts.join(sep);
   renderVersionHistory();
+}
+
+// ── 프로젝트 정보 탭 섹션 ──────────────────────────────────────────────────
+let _piPresenceUnsub = null;
+let _piCurrentProj   = null;
+let _piIsOwner       = false;
+let _piPresenceData  = {};
+
+async function refreshProjInfoSection() {
+  const noEl  = document.getElementById('piNoProject');
+  const conEl = document.getElementById('piContent');
+  if (!_currentProjectId) {
+    if (noEl)  noEl.style.display  = '';
+    if (conEl) conEl.style.display = 'none';
+    if (_piPresenceUnsub) { _piPresenceUnsub(); _piPresenceUnsub = null; }
+    return;
+  }
+  if (noEl)  noEl.style.display  = 'none';
+  if (conEl) conEl.style.display = '';
+
+  try {
+    const proj = await fsStoreGetProject(_currentProjectId);
+    const user = auth.currentUser;
+    _piCurrentProj = proj;
+    _piIsOwner = proj.owner === user.uid;
+
+    // 이름 입력
+    const nameInput = document.getElementById('piNameInput');
+    if (nameInput) nameInput.value = proj.name;
+
+    // 소유자 행 — _piRenderMembers()에서 presence 기반으로 렌더링
+
+    // 소유자 전용 UI
+    const inviteSection = document.getElementById('piInviteSection');
+    const ownerActions  = document.getElementById('piOwnerActions');
+    const memberActions = document.getElementById('piMemberActions');
+    const nameInput2    = document.getElementById('piNameInput');
+    if (inviteSection) inviteSection.style.display = (_piIsOwner || _myRole === 'editor') ? '' : 'none';
+    if (ownerActions)  ownerActions.style.display  = _piIsOwner ? '' : 'none';
+    if (memberActions) memberActions.style.display = !_piIsOwner ? '' : 'none';
+    if (nameInput2)    nameInput2.disabled          = !_piIsOwner;
+
+    // 공유 코드 표시
+    const codeEl = document.getElementById('piShareCode');
+    if (codeEl) codeEl.textContent = proj.shareCode || '—';
+    const viewerCodeEl = document.getElementById('piViewerCode');
+    if (viewerCodeEl) viewerCodeEl.textContent = proj.viewerCode || '—';
+
+    // 초대 탭 기본값
+    piSwitchInviteTab('editor');
+
+    _piRenderMembers();
+
+    // presence 실시간 구독
+    if (_piPresenceUnsub) _piPresenceUnsub();
+    _piPresenceUnsub = db.collection('presence').doc(_currentProjectId).onSnapshot(snap => {
+      _piPresenceData = snap.exists ? snap.data() : {};
+      _piRenderMembers();
+    });
+  } catch(e) {
+    const conEl2 = document.getElementById('piContent');
+    if (conEl2) conEl2.innerHTML = `<div style="opacity:.6;font-size:12px;padding:8px">불러오기 오류: ${esc(e.message)}</div>`;
+  }
+}
+
+function _piRenderMembers() {
+  const proj = _piCurrentProj;
+  if (!proj) return;
+  const user   = auth.currentUser;
+  const now    = Date.now();
+
+  const gridEl = document.getElementById('piMemberGrid');
+  if (!gridEl) return;
+
+  const presenceByEmail = {};
+  Object.values(_piPresenceData).forEach(v => {
+    if (v.email) presenceByEmail[v.email.toLowerCase()] = v;
+  });
+
+  function _mkCard(email, type, removeFn) {
+    const pData    = presenceByEmail[email.toLowerCase()];
+    const isOnline = pData && (now - pData.updatedAt < 120000);
+    const profileKey = email.toLowerCase().replace(/\./g, '_');
+    const profile  = proj.memberProfiles?.[profileKey];
+    const isMe     = email.toLowerCase() === (user.email || '').toLowerCase();
+    const name  = isMe ? getProfileName() : (profile?.name || pData?.name || email.split('@')[0]);
+    const emoji = isMe ? (localStorage.getItem(PROFILE_EMOJI_KEY()) || DEFAULT_EMOJI)
+                       : (profile?.emoji || pData?.emoji || '👤');
+    const removeBtn = _piIsOwner && removeFn && !isMe
+      ? `<button class="mc-remove-btn" title="제거" onclick="${removeFn}('${esc(email)}')">×</button>`
+      : '';
+    return `<div class="mc-card ${type}">
+      ${removeBtn}
+      <span class="mc-card-dot ${type} ${isOnline ? 'online' : ''}"></span>
+      <span class="mc-emoji">${emoji}</span>
+      <div class="mc-name">${esc(name)}</div>
+      <div class="mc-email">${esc(email)}</div>
+      ${isMe ? '<span class="mc-me-badge">나</span>' : ''}
+    </div>`;
+  }
+
+  // 소유자 카드
+  const op = _piPresenceData[proj.owner];
+  const ownerOnline = op && (now - op.updatedAt < 120000);
+  const ownerProfileKey = (proj.ownerEmail || '').toLowerCase().replace(/\./g, '_');
+  const ownerProfile = proj.memberProfiles?.[ownerProfileKey];
+  const ownerEmoji = (proj.owner === user.uid)
+    ? (localStorage.getItem(PROFILE_EMOJI_KEY()) || ownerProfile?.emoji || '👤')
+    : (ownerProfile?.emoji || op?.emoji || '👤');
+  const ownerName = (proj.owner === user.uid)
+    ? getProfileName()
+    : (ownerProfile?.name || op?.name || proj.ownerName || proj.ownerEmail || '소유자');
+  const ownerIsMe = proj.owner === user.uid;
+  const ownerCard = `<div class="mc-card owner">
+    <span class="mc-card-dot owner ${ownerOnline ? 'online' : ''}"></span>
+    <span class="mc-emoji">${ownerEmoji}</span>
+    <div class="mc-name">${esc(ownerName)}</div>
+    <div class="mc-email">${esc(proj.ownerEmail || '')}</div>
+    ${ownerIsMe ? '<span class="mc-me-badge">나</span>' : ''}
+  </div>`;
+
+  const ownerEmailLower = (proj.ownerEmail || '').toLowerCase();
+  const memberCards = (proj.memberEmails || [])
+    .filter(e => e.toLowerCase() !== ownerEmailLower)
+    .map(e => _mkCard(e, 'member', 'piRemoveMember')).join('');
+  const viewerCards = (proj.viewerEmails || [])
+    .filter(e => e.toLowerCase() !== ownerEmailLower)
+    .map(e => _mkCard(e, 'viewer', 'piRemoveViewer')).join('');
+
+  gridEl.innerHTML = ownerCard + memberCards + viewerCards;
+}
+
+async function piSaveName() {
+  if (!_piCurrentProj || !_piIsOwner) return;
+  const input = document.getElementById('piNameInput');
+  const newName = (input?.value || '').trim();
+  if (!newName || newName === _piCurrentProj.name) return;
+  try {
+    await fsStoreRenameProject(_currentProjectId, newName);
+    _piCurrentProj.name = newName;
+    _currentFileName = newName;
+    showToast('이름 변경 완료');
+  } catch(e) { showToast('이름 변경 오류: ' + e.message); }
+}
+
+// _piCurrentProj를 Firestore에서 재조회하고 UI 갱신
+async function _piRefresh() {
+  if (!_currentProjectId) return;
+  try {
+    _piCurrentProj = await fsStoreGetProject(_currentProjectId);
+    const codeEl = document.getElementById('piShareCode');
+    if (codeEl) codeEl.textContent = _piCurrentProj.shareCode || '—';
+    const viewerCodeEl = document.getElementById('piViewerCode');
+    if (viewerCodeEl) viewerCodeEl.textContent = _piCurrentProj.viewerCode || '—';
+    _piRenderMembers();
+  } catch(e) {}
+}
+
+async function piInviteMember() {
+  const input = document.getElementById('piInviteEmail');
+  const email = (input?.value || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) { showToast('올바른 이메일을 입력하세요'); return; }
+  if (email === (auth.currentUser.email || '').toLowerCase()) { showToast('본인은 이미 참여 중입니다'); return; }
+  if ((_piCurrentProj?.memberEmails || []).includes(email)) { showToast('이미 초대된 참여자입니다'); return; }
+  try {
+    // 열람자 목록에 있으면 먼저 제거 후 참여자로 전환
+    if ((_piCurrentProj?.viewerEmails || []).includes(email)) {
+      await fsStoreRemoveViewer(_currentProjectId, email);
+    }
+    await fsStoreInviteMember(_currentProjectId, email);
+    if (input) input.value = '';
+    showToast(`${email} 참여자 초대 완료`);
+    await _piRefresh();
+  } catch(e) { showToast('초대 실패: ' + e.message); }
+}
+
+async function piRemoveMember(email) {
+  if (!confirm(`"${email}" 참여자를 제거하시겠습니까?`)) return;
+  try {
+    await fsStoreRemoveMember(_currentProjectId, email);
+    showToast('참여자 제거 완료');
+    await _piRefresh();
+  } catch(e) { showToast('제거 실패: ' + e.message); }
+}
+
+async function piDeleteProject() {
+  if (!_piCurrentProj || !_piIsOwner) return;
+  if (!confirm(`"${_piCurrentProj.name}" 프로젝트를 삭제할까요?\n버전 히스토리도 모두 삭제됩니다.`)) return;
+  try {
+    const pid = _currentProjectId;
+    _currentProjectId = null; _currentFileName = null; _dataLoaded = false;
+    _piCurrentProj = null;
+    if (_piPresenceUnsub) { _piPresenceUnsub(); _piPresenceUnsub = null; }
+    await fsStoreDeleteProject(pid);
+    showToast('프로젝트 삭제 완료');
+    showProjectsOverlay();
+  } catch(e) { showToast('삭제 오류: ' + e.message); }
+}
+
+async function piLeaveProject() {
+  if (!_piCurrentProj) return;
+  if (!confirm(`"${_piCurrentProj.name}" 프로젝트에서 나가시겠습니까?`)) return;
+  try {
+    await fsStoreRemoveMember(_currentProjectId, auth.currentUser.email);
+    _currentProjectId = null; _currentFileName = null; _dataLoaded = false;
+    _piCurrentProj = null;
+    if (_piPresenceUnsub) { _piPresenceUnsub(); _piPresenceUnsub = null; }
+    showToast('프로젝트에서 나갔습니다');
+    showProjectsOverlay();
+  } catch(e) { showToast('오류: ' + e.message); }
+}
+
+async function piGenerateShareCode() {
+  if (!_currentProjectId || !_piIsOwner) return;
+  const code = _genShareCode();
+  try {
+    await fsStoreSetShareCode(_currentProjectId, code);
+    if (_piCurrentProj) _piCurrentProj.shareCode = code;
+    const codeEl = document.getElementById('piShareCode');
+    if (codeEl) codeEl.textContent = code;
+    showToast('공유 코드가 생성됐습니다');
+  } catch(e) { showToast('오류: ' + e.message); }
+}
+
+function _piGetCode() {
+  const codeEl = document.getElementById('piShareCode');
+  return (_piCurrentProj?.shareCode || codeEl?.textContent || '').trim();
+}
+
+async function _copyText(text, successMsg) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try { await navigator.clipboard.writeText(text); showToast(successMsg); return; } catch(_) {}
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+    showToast(successMsg);
+  } catch(e) { showToast('복사 실패 — 직접 선택해 복사하세요'); }
+}
+
+async function piCopyShareCode() {
+  const code = _piGetCode();
+  if (!code || code === '—') { showToast('먼저 코드를 생성하세요'); return; }
+  await _copyText(code, '코드가 복사됐습니다');
+}
+
+async function piShareCode() {
+  const code = _piGetCode();
+  if (!code || code === '—') { showToast('먼저 코드를 생성하세요'); return; }
+  const text = `Don't Panic Pre 참여 코드: ${code}\n\n앱에서 "코드로 참여하기"에 입력하세요.\n\nhttps://dontpanicpre.web.app`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ text });
+      return;
+    } catch(e) {
+      if (e.name === 'AbortError') return; // 사용자가 취소
+    }
+  }
+  // Web Share API 미지원 시 클립보드에 전체 메시지 복사
+  await _copyText(text, '초대 메시지가 복사됐습니다');
+}
+
+// ── 초대 탭 전환 ─────────────────────────────────────
+function piSwitchInviteTab(tab) {
+  document.querySelectorAll('.pi-invite-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.pi-invite-panel').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== tab));
+}
+
+// ── 열람자 초대 ──────────────────────────────────────
+async function piInviteViewer() {
+  const input = document.getElementById('piInviteViewerEmail');
+  const email = (input?.value || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) { showToast('올바른 이메일을 입력하세요'); return; }
+  if (email === (auth.currentUser.email || '').toLowerCase()) { showToast('본인은 이미 소유자입니다'); return; }
+  if ((_piCurrentProj?.viewerEmails || []).includes(email)) { showToast('이미 초대된 열람자입니다'); return; }
+  try {
+    // 참여자 목록에 있으면 먼저 제거 후 열람자로 전환
+    if ((_piCurrentProj?.memberEmails || []).includes(email)) {
+      await fsStoreRemoveMember(_currentProjectId, email);
+    }
+    await fsStoreInviteViewer(_currentProjectId, email);
+    if (input) input.value = '';
+    showToast(`${email} 열람자 초대 완료`);
+    await _piRefresh();
+  } catch(e) { showToast('초대 실패: ' + e.message); }
+}
+
+async function piRemoveViewer(email) {
+  if (!confirm(`"${email}" 열람자를 제거하시겠습니까?`)) return;
+  try {
+    await fsStoreRemoveViewer(_currentProjectId, email);
+    showToast('열람자 제거 완료');
+    await _piRefresh();
+  } catch(e) { showToast('제거 실패: ' + e.message); }
+}
+
+async function piGenerateViewerCode() {
+  if (!_currentProjectId || !_piIsOwner) return;
+  const code = _genShareCode();
+  try {
+    await fsStoreSetViewerCode(_currentProjectId, code);
+    if (_piCurrentProj) _piCurrentProj.viewerCode = code;
+    const codeEl = document.getElementById('piViewerCode');
+    if (codeEl) codeEl.textContent = code;
+    showToast('열람자 공유 코드가 생성됐습니다');
+  } catch(e) { showToast('오류: ' + e.message); }
+}
+
+function _piGetViewerCode() {
+  const codeEl = document.getElementById('piViewerCode');
+  return (_piCurrentProj?.viewerCode || codeEl?.textContent || '').trim();
+}
+
+async function piCopyViewerCode() {
+  const code = _piGetViewerCode();
+  if (!code || code === '—') { showToast('먼저 코드를 생성하세요'); return; }
+  await _copyText(code, '열람자 코드가 복사됐습니다');
+}
+
+async function piShareViewerCode() {
+  const code = _piGetViewerCode();
+  if (!code || code === '—') { showToast('먼저 코드를 생성하세요'); return; }
+  const text = `Don't Panic Pre 열람자 코드: ${code}\n\n앱에서 "코드로 참여하기"에 입력하세요.\n\nhttps://dontpanicpre.web.app`;
+  if (navigator.share) {
+    try { await navigator.share({ text }); return; }
+    catch(e) { if (e.name === 'AbortError') return; }
+  }
+  await _copyText(text, '열람자 초대 메시지가 복사됐습니다');
 }
 
 function toggleListNav(e) { e.stopPropagation(); document.getElementById('listNavDropdown').classList.toggle('open'); }
@@ -4902,6 +5699,7 @@ function _locFromSceneExtras(name) {
 
 function syncPropToList(name, category, snum, item) {
   if (!name || (category !== 'charProp' && category !== 'setProp')) return;
+  normalizeListState();
   const existing = propList.find(p => p.name === name && p.category === category);
   if (existing) {
     if (category === 'charProp' && !existing.character && item) {
@@ -4928,6 +5726,7 @@ function syncPropToList(name, category, snum, item) {
 
 // 브레이크다운에서 소품이 제거될 때 → 어느 씬에도 없으면 propList에서 삭제
 function removePropFromList(name, category) {
+  normalizeListState();
   const field = category === 'charProp' ? 'charPropItems' : 'setPropItems';
   const stillExists = Object.values(sceneExtras).some(extra =>
     (extra[field] || []).some(i => getItemText(i) === name)
@@ -4937,6 +5736,7 @@ function removePropFromList(name, category) {
 
 // 공간소품의 장소명을 씬의 장소로 자동 업데이트
 function autoFillPropLocation(name, snum) {
+  normalizeListState();
   const prop = propList.find(p => p.name === name && p.category === 'setProp');
   if (!prop || prop.location) return;
   const sc = snum != null ? _findSceneByNum(snum) : null;
@@ -4945,6 +5745,7 @@ function autoFillPropLocation(name, snum) {
 
 // 인물소품의 인물명을 sceneExtras에서 자동 업데이트
 function autoFillPropCharacter(name, snum) {
+  normalizeListState();
   const prop = propList.find(p => p.name === name && p.category === 'charProp');
   if (!prop || prop.character) return;
   const extra = sceneExtras[snum];
@@ -4978,6 +5779,7 @@ function syncAllPropsFromBreakdown() {
 // ══════════════════════════════════════════════════
 function syncCostumeToList(name, category, snum, item) {
   if (!name || (category !== 'costume' && category !== 'makeup')) return;
+  normalizeListState();
   const existing = costumeList.find(c => c.name === name && c.category === category);
   if (existing) {
     if (!existing.character && item) { const ch = getItemChar(item); if (ch) existing.character = ch; }
@@ -4993,6 +5795,7 @@ function syncCostumeToList(name, category, snum, item) {
 }
 
 function removeCostumeFromList(name, category) {
+  normalizeListState();
   const field = category === 'costume' ? 'costumeItems' : 'makeupItems';
   const stillExists = Object.values(sceneExtras).some(extra =>
     (extra[field] || []).some(i => getItemText(i) === name)
@@ -6085,6 +6888,7 @@ document.addEventListener('click', function() { closeDataMgmt(); });
 // 백업 / 복원
 // ══════════════════════════════════════════════════
 function backupProject() {
+  normalizeListState();
   const project = document.getElementById('projectName').value || '스크립트';
   const data = {
     version: 1,
@@ -6093,16 +6897,22 @@ function backupProject() {
     authorName:        document.getElementById('authorName').value,
     projectDate:       document.getElementById('projectDate').value,
     sched:             sched,
+    schedDays:         schedDays,
     charNotes:         charNotes,
     charInfo:          charInfo,
     manualCharsByScene:manualCharsByScene,
     sceneNotes:        sceneNotes,
+    sceneExtras:       sceneExtras,
+    csLabels:          csLabels,
     globalChars:       globalChars,
     charOrder:         charOrder,
     hiddenChars:       hiddenChars,
+    callSheets:        callSheets,
+    lastCSNum:         csGet()?.csNum ?? null,
     calMonth:          calMonth.getTime(),
     locationInfo:      locationInfo,
     locationOrder:     locationOrder,
+    propList:          propList,
     costumeList:       costumeList,
     pageNumberStyle:   pageNumberStyle
   };
@@ -6124,28 +6934,36 @@ function restoreProject(input) {
       const data = JSON.parse(e.target.result);
       const htmlContent = data.scriptHtml || data.html || '';
       if (!htmlContent) { alert('올바른 백업 파일이 아닙니다.\n(scriptHtml 또는 html 필드 없음)'); return; }
-      ed().innerHTML = htmlContent;
-      ed().querySelectorAll('.l-heading,.l-action,.l-char,.l-dialogue').forEach(el => {
-        el.style.fontFamily = '';
-        el.style.fontSize   = '';
-        el.style.fontWeight = '';
-        el.style.lineHeight = '';
-        el.style.textAlign  = '';
-        el.style.marginTop  = '';
-        el.style.marginBottom = '';
-      });
-      sched                       = data.sched             || {};
-      charNotes                   = data.charNotes         || {};
-      charInfo                    = data.charInfo          || {};
-      manualCharsByScene          = data.manualCharsByScene|| data.manualChars || {};
-      sceneNotes                  = data.sceneNotes        || {};
-      sceneExtras                 = data.sceneExtras       || {};
-      globalChars                 = data.globalChars       || [];
-      charOrder                   = data.charOrder         || [];
-      hiddenChars                 = data.hiddenChars       || [];
-      locationInfo                = data.locationInfo      || {};
+      if (window.DPEditor?.isReady()) {
+        DPEditor.setContent(htmlContent);
+      } else {
+        ed().innerHTML = htmlContent;
+        ed().querySelectorAll('.l-heading,.l-action,.l-char,.l-dialogue').forEach(el => {
+          el.style.fontFamily = '';
+          el.style.fontSize   = '';
+          el.style.fontWeight = '';
+          el.style.lineHeight = '';
+          el.style.textAlign  = '';
+          el.style.marginTop  = '';
+          el.style.marginBottom = '';
+        });
+      }
+	      sched                       = data.sched             || {};
+	      schedDays                   = data.schedDays         || {};
+	      charNotes                   = data.charNotes         || {};
+	      charInfo                    = data.charInfo          || {};
+	      manualCharsByScene          = data.manualCharsByScene|| data.manualChars || {};
+	      sceneNotes                  = data.sceneNotes        || {};
+	      sceneExtras                 = data.sceneExtras       || {};
+	      csLabels                    = data.csLabels          || {};
+	      globalChars                 = data.globalChars       || [];
+	      charOrder                   = data.charOrder         || [];
+	      hiddenChars                 = data.hiddenChars       || [];
+	      callSheets                  = data.callSheets        || [];
+	      locationInfo                = data.locationInfo      || {};
       locationOrder               = data.locationOrder     || [];
-      costumeList                 = data.costumeList       || [];
+      propList                    = ensureArray(data.propList);
+      costumeList                 = ensureArray(data.costumeList);
       pageNumberStyle             = data.pageNumberStyle   || null;
       if (data.calMonth)    calMonth = new Date(data.calMonth);
       if (data.month)       calMonth = new Date(data.month);
@@ -6156,8 +6974,16 @@ function restoreProject(input) {
       updateHeaderDisplay();
       refreshTypeUI();
       checkEditorEmpty();
+      _currentFileName = document.getElementById('projectName').value || _currentFileName || '새 프로젝트';
+      if (!_currentProjectId) _myRole = 'owner';
+      updateSidebarRoleBadge();
+      document.getElementById('projectsOverlay')?.classList.add('hidden');
+      switchTab('editor', document.querySelector('.nav-btn'));
       _dataLoaded = true;
-      doSave();
+      // Firestore 저장 후 최근 목록 등록 (doSave 내부에서 _currentProjectId 확정됨)
+      doSave().then(() => {
+        addRecentProject(_currentFileName, _currentProjectId);
+      }).catch(() => {});
       closeSidebarUserPopup();
       alert('백업 파일을 성공적으로 불러왔습니다.');
     } catch(err) {
@@ -6190,7 +7016,7 @@ function _incSaveCount() {
 // 타이핑할 때마다 즉시 저장하면 Firestore 쓰기 횟수가 많아지므로
 // 마지막 입력 후 1.5초 뒤에 한 번만 저장합니다
 function save() {
-  if (!auth.currentUser || !_dataLoaded) return;
+  if (!auth.currentUser || !_dataLoaded || _suppressSave) return;
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(doSave, 1500);
 }
@@ -6218,8 +7044,10 @@ document.addEventListener('visibilitychange', () => {
 
 async function doSave() {
   if (!auth.currentUser || !_dataLoaded) return;
+  normalizeListState();
+
   const data = {
-    html:        ed().innerHTML,
+    html:        window.DPEditor?.isReady() ? DPEditor.getContent() : ed().innerHTML,
     sched, schedDays,
     project:     document.getElementById('projectName').value,
     author:      document.getElementById('authorName').value,
@@ -6234,6 +7062,7 @@ async function doSave() {
     month:       calMonth.getTime(),
     savedAt:     new Date().toISOString(),
   };
+
   try {
     await fsStoreSave(_currentFileName || '새 프로젝트', data);
   } catch(e) {
@@ -6246,18 +7075,22 @@ async function doSave() {
 }
 
 // ── 최근 프로젝트 관리 ──────────────────────────
+function _recentKey() {
+  const u = auth.currentUser;
+  return u ? `dpre-recent-${u.uid}` : 'dpre-recent';
+}
 function getRecentProjects() {
-  try { return JSON.parse(localStorage.getItem('dpre-recent') || '[]'); } catch { return []; }
+  try { return JSON.parse(localStorage.getItem(_recentKey()) || '[]'); } catch { return []; }
 }
 function addRecentProject(name, projectId = null) {
   const list = getRecentProjects().filter(p => p.projectId !== projectId);
   list.unshift({ name, projectId, openedAt: new Date().toISOString() });
-  localStorage.setItem('dpre-recent', JSON.stringify(list.slice(0, 15)));
+  localStorage.setItem(_recentKey(), JSON.stringify(list.slice(0, 15)));
 }
 function removeRecentProject(idx) {
   const list = getRecentProjects();
   list.splice(idx, 1);
-  localStorage.setItem('dpre-recent', JSON.stringify(list));
+  localStorage.setItem(_recentKey(), JSON.stringify(list));
   renderRecentProjects();
 }
 let _recentExpanded = false;
@@ -6279,7 +7112,7 @@ function renderRecentProjects() {
         <div class="recent-project-name">${esc(p.name)}</div>
         ${dateStr ? `<div class="recent-project-date">${dateStr}</div>` : ''}
       </div>
-      <div class="recent-project-path">📁 Firebase</div>
+      <div class="recent-project-path">🎬 Firebase</div>
     </div>`;
   }).join('');
   const moreCount = allList.length - 1;
@@ -6307,13 +7140,17 @@ async function openRecentProject(idx) {
   const resetEl = () => { if (itemEl) { itemEl.style.opacity = ''; itemEl.style.pointerEvents = ''; } };
   showToast('불러오는 중...');
   try {
-    const data = await fsStoreLoadProject(p.projectId);
+    const proj = await fsStoreGetProject(p.projectId);
+    _myRole = _getMyRole(proj);
+    updateSidebarRoleBadge();
     _currentProjectId = p.projectId;
     _currentFileName  = p.name;
     document.getElementById('projectsOverlay')?.classList.add('hidden');
     switchTab('editor', document.querySelector('.nav-btn'));
-    await applyLoadedData(data);
+    await applyLoadedData(proj.data || {});
     resetEl();
+
+    _syncProfileToProject(p.projectId);
   } catch(e) {
     resetEl();
     showToast('불러오기 실패: ' + e.message);
@@ -6331,7 +7168,7 @@ function _fmtModified(ms) {
   const dd  = String(d.getDate()).padStart(2, '0');
   const h24 = d.getHours();
   const ampm = h24 < 12 ? '오전' : '오후';
-  const h12  = h24 % 12 || 12;
+  const h12  = String(h24 % 12 || 12).padStart(2, '0');
   const min  = String(d.getMinutes()).padStart(2, '0');
   return `${yy}.${mm}.${dd} ${ampm} ${h12}:${min}`;
 }
@@ -6392,18 +7229,32 @@ async function renderVersionHistory() {
 
 
 // ── 프로젝트 목록 UI ────────────────────────────
+let _projectsHomeTab = 'mine';
+
+function switchProjectsHomeTab(tab) {
+  _projectsHomeTab = tab || 'mine';
+  document.querySelectorAll('.projects-home-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.homeTab === _projectsHomeTab);
+  });
+  document.querySelectorAll('.projects-home-panel').forEach(panel => {
+    panel.classList.toggle('hidden', panel.dataset.homePanel !== _projectsHomeTab);
+  });
+  if (_projectsHomeTab === 'recent') renderRecentProjects();
+}
+
 async function showProjectsOverlay() {
   presenceLeave().catch(() => {});
+
   const overlay = document.getElementById('projectsOverlay');
   if (!overlay) return;
   overlay.classList.remove('hidden');
 
-  const u = auth.currentUser;
   const nameEl = document.getElementById('projectsUserName');
-  if (nameEl) {
-    const name = (u?.displayName || u?.email || '').split('@')[0];
-    nameEl.textContent = name ? `안녕하세요, ${name}님` : '';
-  }
+	  if (nameEl) {
+	    const name = getProfileName();
+	    nameEl.textContent = name ? `안녕하세요, ${name}님` : '';
+	  }
+  switchProjectsHomeTab(_projectsHomeTab || 'mine');
 
   const listEl  = document.getElementById('folderBrowseList');
   const section = document.getElementById('folderBrowseSection');
@@ -6449,13 +7300,21 @@ async function confirmNewProject() {
 
   _currentFileName   = name;
   _currentProjectId = null;
+  _myRole = 'owner';
+  updateSidebarRoleBadge();
   _dataLoaded = false;
 
   switchTab('editor', document.querySelector('.nav-btn'));
-  const editor = ed();
-  if (editor) {
-    editor.innerHTML = '<p class="l-heading"><br></p>';
-    editor.style.minHeight = '';
+  if (window.DPEditor?.isReady()) {
+    DPEditor.setContent('<p data-type="heading" class="l-heading"><br></p>');
+    DPEditor.setReadOnly(false);
+  } else {
+    const editor = ed();
+    if (editor) {
+      editor.innerHTML = '<p class="l-heading"><br></p>';
+      editor.style.minHeight = '';
+      editor.contentEditable = 'true';
+    }
   }
   document.getElementById('projectName').value = name;
   document.getElementById('authorName').value  = '';
@@ -6464,7 +7323,7 @@ async function confirmNewProject() {
   charNotes = {}; charInfo = {}; manualCharsByScene = {};
   sceneNotes = {}; sceneExtras = {}; globalChars = [];
   charOrder = []; hiddenChars = []; locationInfo = {};
-  locationOrder = []; propList = {}; costumeList = {};
+  locationOrder = []; propList = []; costumeList = [];
   callSheets = []; currentCSIdx = 0;
   renderLeftSidebar();
   _dataLoaded = true;
@@ -6476,6 +7335,7 @@ async function confirmNewProject() {
 
 // load()에서 Drive 데이터 적용 시 공통 함수
 async function applyLoadedData(d) {
+  _suppressSave = true;
   if (d.sched)         sched              = d.sched;
   if (d.schedDays)     schedDays          = d.schedDays;
   if (d.charNotes)     charNotes          = d.charNotes;
@@ -6491,8 +7351,8 @@ async function applyLoadedData(d) {
   if (d.hiddenChars)   hiddenChars        = d.hiddenChars;
   if (d.locationInfo)  locationInfo       = d.locationInfo;
   if (d.locationOrder) locationOrder      = d.locationOrder;
-  if (d.propList)      propList           = d.propList;
-  if (d.costumeList)   costumeList        = d.costumeList;
+  propList      = ensureArray(d.propList);
+  costumeList   = ensureArray(d.costumeList);
   pageNumberStyle = d.pageNumberStyle || null;
   if (d.month)         calMonth           = new Date(d.month);
 
@@ -6505,7 +7365,11 @@ async function applyLoadedData(d) {
 
   const scriptHtml = d.html || d.scriptHtml || '';
   if (scriptHtml) {
-    ed().innerHTML = scriptHtml;
+    if (window.DPEditor?.isReady()) {
+      DPEditor.setContent(scriptHtml);
+    } else {
+      ed().innerHTML = scriptHtml;
+    }
     ed().querySelectorAll('.l-heading,.l-action,.l-char,.l-dialogue').forEach(el => {
       ['fontFamily','fontSize','fontWeight','lineHeight','textAlign','marginTop','marginBottom']
         .forEach(p => el.style[p] = '');
@@ -6524,8 +7388,17 @@ async function applyLoadedData(d) {
   setMonTitle();
   updateHeaderDisplay();
   refreshTypeUI();
+  updateSidebarRoleBadge();
   checkEditorEmpty();
+  // 열람자 → 에디터 읽기 전용
+  const edEl = document.getElementById('scriptEditor');
+  if (window.DPEditor?.isReady()) {
+    DPEditor.setReadOnly(_myRole === 'viewer');
+  } else if (edEl) {
+    edEl.contentEditable = _myRole === 'viewer' ? 'false' : 'true';
+  }
   presenceJoin().catch(() => {});
+  _suppressSave = false;  // 이후 사용자 입력은 정상 저장되도록 해제
 
   // 오늘 날짜 스냅샷이 없으면 프로젝트 열 때 즉시 1회 백업
   setTimeout(async () => {
@@ -6565,10 +7438,11 @@ async function applyLoadedData(d) {
 // ══════════════════════════════════════════════════
 // 접속자 Presence (Firestore)
 // ══════════════════════════════════════════════════
-let _presenceFileKey  = null;
-let _presenceListener = null;
-let _presenceTimer    = null;
-let _conflictWarned   = false;
+let _presenceFileKey      = null;
+let _presenceListener     = null;
+let _presenceTimer        = null;
+let _projectDataListener  = null; // sceneExtras/propList 등 실시간 동기화
+let _conflictWarned       = false;
 
 function _makeFileKey(folderName, fileName) {
   return btoa(encodeURIComponent(folderName + '/' + fileName)).replace(/=/g, '');
@@ -6579,47 +7453,161 @@ async function presenceJoin() {
   if (!user || !_currentProjectId) return;
   await presenceLeave(); // 이전 리스너 정리
 
-  _presenceFileKey  = _currentProjectId;
-  _conflictWarned   = false;
-  const emoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
+  _presenceFileKey = _currentProjectId;
+  const emoji = localStorage.getItem(PROFILE_EMOJI_KEY()) || DEFAULT_EMOJI;
   const name  = getProfileName();
+  const role  = _myRole;
 
   const docRef = db.collection('presence').doc(_presenceFileKey);
 
-  // 내 세션 등록
-  await docRef.set({ [user.uid]: { name, emoji, email: user.email || '', updatedAt: Date.now() } }, { merge: true });
+  // 내 세션 등록 (역할 + 커서 오프셋 포함)
+  await docRef.set({
+    [user.uid]: { name, emoji, email: user.email || '', role, cursorOffset: -1, updatedAt: Date.now() }
+  }, { merge: true });
 
   // 실시간 리스너
   _presenceListener = docRef.onSnapshot(snap => {
     if (!snap.exists) return;
+    const now = Date.now();
     const users = Object.entries(snap.data())
-      .filter(([, v]) => Date.now() - v.updatedAt < 120000) // 2분 이내
+      .filter(([, v]) => now - v.updatedAt < 120000) // 2분 이내
       .map(([uid, v]) => ({ uid, ...v, isMe: uid === user.uid }));
-    renderPresenceChips(users);
 
-    // 타인이 접속 중일 때 첫 편집 시 경고
-    if (!_conflictWarned && users.some(u => !u.isMe)) {
-      _conflictWarned = true;
-      showToast(`⚠️ ${users.filter(u=>!u.isMe).map(u=>u.name).join(', ')}님도 이 파일을 열고 있습니다. 동시 편집 시 덮어쓰기가 발생할 수 있습니다.`, 5000);
+    renderPresenceChips(users);
+    _drawCursors(users);
+
+    // 동시 접속 에디터 8명 제한 (열람자 제외)
+    if (_myRole !== 'viewer') {
+      const editors = users.filter(u => u.role !== 'viewer');
+      // 나의 순서가 8번째(index 7)를 초과하면 편집 불가
+      const myEditorIndex = editors.findIndex(u => u.isMe);
+      const isOver = myEditorIndex >= 8;
+      const editorEl = document.getElementById('scriptEditor');
+      if (editorEl) {
+        const wasEditable = editorEl.contentEditable === 'true';
+        editorEl.contentEditable = isOver ? 'false' : 'true';
+        if (isOver && wasEditable) {
+          showToast('⚠️ 동시 접속 편집자가 8명을 초과하여 편집이 제한됩니다.', 5000);
+        }
+      }
     }
   });
 
-  // heartbeat (매 30초, 최신 이모지를 localStorage에서 읽어 반영)
+  // heartbeat (매 30초, 최신 정보 반영 — cursorOffset은 덮어쓰지 않음)
   _presenceTimer = setInterval(async () => {
     try {
-      const currentEmoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
+      const currentEmoji = localStorage.getItem(PROFILE_EMOJI_KEY()) || DEFAULT_EMOJI;
       const currentName  = getProfileName();
-      await docRef.set({ [user.uid]: { name: currentName, emoji: currentEmoji, email: user.email || '', updatedAt: Date.now() } }, { merge: true });
+      await docRef.set({
+        [user.uid]: { name: currentName, emoji: currentEmoji, email: user.email || '', role: _myRole, updatedAt: Date.now() }
+      }, { merge: true });
     } catch(e) {}
   }, 30000);
 
   // 채팅도 같이 시작
   chatJoin(_presenceFileKey);
+
+  // Yjs WebSocket 실시간 협업 연결
+  window.DPEditor?.connect(_currentProjectId);
+
+  // ── 프로젝트 데이터 실시간 리스너 (sceneExtras·propList 등 협업 동기화)
+  if (_projectDataListener) { _projectDataListener(); _projectDataListener = null; }
+
+  // ── 내부 merge 헬퍼 ──────────────────────────────────────────────────────
+  // 상대방 데이터와 내 로컬 데이터를 합칠 때 요소 등록 배열을 보존하는 MERGE
+  function _mergeSceneExtras(local, remote) {
+    const ITEM_FIELDS = ['costumeItems','makeupItems','charPropItems','setPropItems','vfxItems','etcItems','locationItems'];
+    const result = JSON.parse(JSON.stringify(remote || {}));
+    for (const [snum, localExtra] of Object.entries(local || {})) {
+      if (!result[snum]) result[snum] = {};
+      for (const field of ITEM_FIELDS) {
+        if (!localExtra[field]?.length) continue;
+        if (!result[snum][field]) result[snum][field] = [];
+        for (const localItem of localExtra[field]) {
+          const text = getItemText(localItem);
+          if (!result[snum][field].some(i => getItemText(i) === text)) {
+            result[snum][field].push(localItem); // 로컬에만 있는 항목 보존
+          }
+        }
+      }
+      // 텍스트 요약 필드(costumeList, propList 등)는 병합 후 재계산
+      for (const [field, listField] of Object.entries(ITEMS_TO_LIST)) {
+        if (!result[snum]?.[field]) continue;
+        result[snum][listField] = result[snum][field].map(getItemText).filter(Boolean).join(', ');
+      }
+    }
+    return result;
+  }
+
+  // propList / costumeList: 서버 기준, 로컬에만 있는 항목 추가
+  function _mergeList(local, remote, keyFields) {
+    const result = JSON.parse(JSON.stringify(remote || []));
+    for (const localItem of (local || [])) {
+      const already = result.some(r => keyFields.every(k => r[k] === localItem[k]));
+      if (!already) result.push(JSON.parse(JSON.stringify(localItem)));
+    }
+    return result;
+  }
+  _projectDataListener = db.collection('projects').doc(_currentProjectId)
+    .onSnapshot(snap => {
+      if (!snap.exists) return;
+      const d = snap.data();
+      // 내가 저장한 변경은 이미 로컬에 반영돼 있으므로 건너뜀
+      // (merge 방식이므로 로컬 항목은 항상 보존됨)
+      if (d.updatedBy === auth.currentUser?.uid) return;
+      const rd = d.data || {};
+      // 스크립트 텍스트(html)는 Yjs가 처리하므로 제외하고 메타 데이터만 동기화
+      // sceneExtras의 요소 등록 배열은 MERGE (덮어쓰지 않음 — 로컬 등록 항목 보존)
+      sceneExtras        = _mergeSceneExtras(sceneExtras, rd.sceneExtras);
+      propList           = _mergeList(propList,     ensureArray(rd.propList),     ['name','category']);
+      costumeList        = _mergeList(costumeList,  ensureArray(rd.costumeList),  ['name','category']);
+      charNotes          = rd.charNotes          || {};
+      charInfo           = rd.charInfo           || {};
+      manualCharsByScene = rd.manualCharsByScene  || {};
+      sceneNotes         = rd.sceneNotes         || {};
+      locationInfo       = rd.locationInfo       || {};
+      locationOrder      = rd.locationOrder      || [];
+      csLabels           = rd.csLabels           || {};
+      globalChars        = rd.globalChars        || [];
+      charOrder          = rd.charOrder          || [];
+      hiddenChars        = rd.hiddenChars        || [];
+      // 촬영스케줄 동기화
+      if (rd.sched)     sched     = rd.sched;
+      if (rd.schedDays) schedDays = rd.schedDays;
+      // 일촬표 동기화
+      if (rd.callSheets) {
+        callSheets = rd.callSheets;
+        currentCSIdx = Math.min(currentCSIdx, callSheets.length - 1);
+        if (currentCSIdx < 0) currentCSIdx = 0;
+      }
+      // 프로젝트 이름 동기화 (사이드바 실시간 반영)
+      if (d.name && d.name !== _currentFileName) {
+        _currentFileName = d.name;
+        const projInput = document.getElementById('projectName');
+        if (projInput) projInput.value = d.name;
+        // 현재 편집 중이 아닐 때만 사이드바 레이블 갱신
+        const labelEl = document.getElementById('sidebarProjectLabel');
+        if (labelEl && !labelEl.isContentEditable) labelEl.textContent = d.name;
+      }
+      // 현재 열려 있는 탭 리렌더링
+      renderSidebar();
+      renderLeftSidebar();
+      const onTab = id => document.getElementById(id)?.classList.contains('on');
+      if (onTab('tab-scenebd'))     renderSceneBd();
+      if (onTab('tab-breakdown'))   renderBreakdown();
+      if (onTab('tab-chars'))       renderChars();
+      if (onTab('tab-loclist'))     renderLocList();
+      if (onTab('tab-proplist'))    renderPropList();
+      if (onTab('tab-costumelist')) renderCostumeList();
+      if (onTab('tab-schedule'))    renderSchedule();
+      if (onTab('tab-callsheet'))   renderCS();
+    }, () => {});
 }
 
 async function presenceLeave() {
-  if (_presenceTimer)    { clearInterval(_presenceTimer); _presenceTimer = null; }
-  if (_presenceListener) { _presenceListener(); _presenceListener = null; }
+  if (_presenceTimer)          { clearInterval(_presenceTimer); _presenceTimer = null; }
+  if (_presenceListener)       { _presenceListener(); _presenceListener = null; }
+  if (_projectDataListener)    { _projectDataListener(); _projectDataListener = null; }
   const user = auth.currentUser;
   if (user && _presenceFileKey) {
     try {
@@ -6631,6 +7619,94 @@ async function presenceLeave() {
   _presenceFileKey = null;
   renderPresenceChips([]);
   chatLeave();
+  // Yjs WebSocket 연결 해제
+  window.DPEditor?.disconnect();
+}
+
+// ── 커서 공유 헬퍼 ───────────────────────────────────
+function _getCaretTextOffset() {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return -1;
+  const range = sel.getRangeAt(0);
+  const editorEl = document.getElementById('scriptEditor');
+  if (!editorEl || !editorEl.contains(range.startContainer)) return -1;
+  const walker = document.createTreeWalker(editorEl, NodeFilter.SHOW_TEXT);
+  let offset = 0;
+  let node;
+  while ((node = walker.nextNode())) {
+    if (node === range.startContainer) return offset + range.startOffset;
+    offset += node.textContent.length;
+  }
+  return offset;
+}
+
+function _getOffsetRect(editorEl, textOffset) {
+  if (textOffset < 0) return null;
+  const walker = document.createTreeWalker(editorEl, NodeFilter.SHOW_TEXT);
+  let remaining = textOffset;
+  let node;
+  while ((node = walker.nextNode())) {
+    const len = node.textContent.length;
+    if (remaining <= len) {
+      try {
+        const range = document.createRange();
+        range.setStart(node, remaining);
+        range.setEnd(node, remaining);
+        const rects = range.getClientRects();
+        return rects.length ? rects[0] : null;
+      } catch(e) { return null; }
+    }
+    remaining -= len;
+  }
+  return null;
+}
+
+function _drawCursors(users) {
+  const editorEl  = document.getElementById('scriptEditor');
+  const scrollWrap = document.getElementById('editorScrollWrap');
+  if (!editorEl || !scrollWrap) return;
+
+  let overlay = document.getElementById('cursorOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'cursorOverlay';
+    overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;pointer-events:none;z-index:10;';
+    if (getComputedStyle(scrollWrap).position === 'static') scrollWrap.style.position = 'relative';
+    scrollWrap.appendChild(overlay);
+  }
+
+  const others = users.filter(u => !u.isMe && typeof u.cursorOffset === 'number' && u.cursorOffset >= 0);
+  if (!others.length) { overlay.innerHTML = ''; return; }
+
+  const wrapRect = scrollWrap.getBoundingClientRect();
+  let colorIdx = 0;
+  overlay.innerHTML = others.map(u => {
+    const rect = _getOffsetRect(editorEl, u.cursorOffset);
+    if (!rect) return '';
+    const top   = rect.top  - wrapRect.top  + scrollWrap.scrollTop;
+    const left  = rect.left - wrapRect.left + scrollWrap.scrollLeft;
+    const h     = rect.height || 20;
+    const color = CURSOR_COLORS[colorIdx++ % CURSOR_COLORS.length];
+    return `<div style="position:absolute;top:${top}px;left:${left}px;width:2px;height:${h}px;background:${color};border-radius:1px;">
+      <div style="position:absolute;bottom:calc(100% + 2px);left:0;background:${color};color:#fff;font-size:10px;padding:1px 6px;border-radius:3px;white-space:nowrap;line-height:18px;font-family:sans-serif;">${esc(u.name)}</div>
+    </div>`;
+  }).join('');
+}
+
+function _sendCursorPosition() {
+  if (_cursorTimer) clearTimeout(_cursorTimer);
+  _cursorTimer = setTimeout(async () => {
+    const user = auth.currentUser;
+    if (!user || !_presenceFileKey) return;
+    const offset = _getCaretTextOffset();
+    if (offset < 0) return;
+    try {
+      await db.collection('presence').doc(_presenceFileKey).set(
+        { [user.uid]: { cursorOffset: offset, updatedAt: Date.now(), editingAt: Date.now() } },
+        { merge: true }
+      );
+    } catch(e) {}
+  }, 200);
 }
 
 const PRESENCE_MAX_CHIPS = 8;
@@ -6743,7 +7819,7 @@ async function chatSend() {
   if (!text || !_chatFileKey) return;
   const user  = auth.currentUser;
   if (!user) return;
-  const emoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
+  const emoji = localStorage.getItem(PROFILE_EMOJI_KEY()) || DEFAULT_EMOJI;
   const name  = getProfileName();
   input.value = '';
   try {
@@ -6945,7 +8021,7 @@ async function dmSend() {
   if (!text || !_dmKey) return;
   const user = auth.currentUser;
   if (!user) return;
-  const emoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
+  const emoji = localStorage.getItem(PROFILE_EMOJI_KEY()) || DEFAULT_EMOJI;
   const name  = getProfileName();
   input.value = '';
   try {
@@ -7003,6 +8079,43 @@ async function pruneOldDmMessages(dmKey) {
   } catch(e) {}
 }
 
+function dismissLanding() {
+  localStorage.setItem('dpre-landing-v1', '1');
+  const overlay = document.getElementById('landingOverlay');
+  if (!overlay) return;
+
+  // 1) 목표 화면을 먼저 보여줌 (랜딩이 위에서 덮고 있으므로 즉시 표시해도 안 보임)
+  if (auth?.currentUser) {
+    showProjectsOverlay();
+  } else {
+    document.getElementById('loginOverlay')?.classList.remove('hidden');
+  }
+
+  // 2) 랜딩을 위로 슬라이드아웃 (opacity 변화 없음 → 뒤쪽 절대 비치지 않음)
+  overlay.classList.add('lp-out');
+  setTimeout(() => {
+    overlay.classList.add('hidden');
+    overlay.classList.remove('lp-out');
+  }, 440);
+}
+
+function backToLanding() {
+  localStorage.removeItem('dpre-landing-v1');
+  _authSetError('');
+  hideResetPanel();
+  document.getElementById('loginOverlay')?.classList.add('hidden');
+  showLanding();
+}
+
+function showLanding() {
+  // 항상 index.html에 있는 기존 overlay를 재사용
+  const overlay = document.getElementById('landingOverlay');
+  if (!overlay) return;
+  document.getElementById('loginOverlay')?.classList.add('hidden');
+  document.getElementById('projectsOverlay')?.classList.add('hidden');
+  _setupLandingOverlay(overlay);
+}
+
 function showToast(msg, duration = 3000) {
   let toast = document.getElementById('dpToast');
   if (!toast) {
@@ -7020,12 +8133,13 @@ function ieBadge(ie){ return{INT:'b-int',EXT:'b-ext','INT/EXT':'b-ie'}[ie]||'b-i
 function timeBadge(t){ return{day:'b-day',night:'b-night',dawn:'b-dawn',eve:'b-eve'}[t]||'b-day'; }
 
 /* ── 프로필 닉네임 + 이모지 ──────────────────────────── */
-const PROFILE_NICK_KEY  = 'dpre-profile-nick';
-const PROFILE_EMOJI_KEY = 'dpre-profile-emoji';
+// 계정별 프로필 키 — UID로 구분
+function PROFILE_NICK_KEY()  { const u = auth.currentUser; return u ? `dpre-profile-nick-${u.uid}`  : 'dpre-profile-nick'; }
+function PROFILE_EMOJI_KEY() { const u = auth.currentUser; return u ? `dpre-profile-emoji-${u.uid}` : 'dpre-profile-emoji'; }
 
 /** 표시 이름: 저장된 닉네임 우선, 없으면 displayName/email */
 function getProfileName() {
-  const saved = localStorage.getItem(PROFILE_NICK_KEY);
+  const saved = localStorage.getItem(PROFILE_NICK_KEY());
   if (saved) return saved;
   const user = auth.currentUser;
   if (!user) return '사용자';
@@ -7057,13 +8171,19 @@ function saveProfileName() {
   const input = document.getElementById('myInfoNameInput');
   if (!input) return;
   const newName = input.value.trim() || getProfileName();
-  localStorage.setItem(PROFILE_NICK_KEY, newName);
+  localStorage.setItem(PROFILE_NICK_KEY(), newName);
   _restoreNameRow(newName);
   _syncNameToPresence(newName);
   // 사이드바 이름도 업데이트
   document.querySelectorAll('#sidebarUserName,#sidebarPopupName').forEach(el => {
     if (el) el.textContent = newName;
   });
+  updateSidebarRoleBadge();
+  // 홈화면 인사말 업데이트
+  const greetEl = document.getElementById('projectsUserName');
+  if (greetEl) greetEl.textContent = `안녕하세요, ${newName}님`;
+  // 프로젝트 문서에 변경된 별명 저장
+  if (_currentProjectId) _syncProfileToProject(_currentProjectId);
 }
 
 /** 별명 편집 취소 (Escape) */
@@ -7083,7 +8203,7 @@ function _restoreNameRow(name) {
 function _syncNameToPresence(name) {
   const user = auth.currentUser;
   if (!user || !_presenceFileKey) return;
-  const emoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
+  const emoji = localStorage.getItem(PROFILE_EMOJI_KEY()) || DEFAULT_EMOJI;
   db.collection('presence').doc(_presenceFileKey)
     .set({ [user.uid]: { name, emoji, email: user.email || '', updatedAt: Date.now() } }, { merge: true })
     .catch(() => {});
@@ -7099,7 +8219,7 @@ const PROFILE_EMOJIS = [
 const DEFAULT_EMOJI = '😊';
 
 function applyProfileEmoji() {
-  const emoji = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
+  const emoji = localStorage.getItem(PROFILE_EMOJI_KEY()) || DEFAULT_EMOJI;
   const avatarEl  = document.getElementById('sidebarUserAvatar');
   const popupEl   = document.getElementById('sidebarPopupAvatar');
   const previewEl = document.getElementById('myInfoAvatarPreview');
@@ -7124,7 +8244,7 @@ function applyProfileEmoji() {
 function initEmojiPicker() {
   const grid = document.getElementById('myInfoEmojiGrid');
   if (!grid) return;
-  const current = localStorage.getItem(PROFILE_EMOJI_KEY) || DEFAULT_EMOJI;
+  const current = localStorage.getItem(PROFILE_EMOJI_KEY()) || DEFAULT_EMOJI;
   grid.innerHTML = PROFILE_EMOJIS.map(e =>
     `<button class="myinfo-emoji-btn${e === current ? ' selected' : ''}" onclick="selectProfileEmoji('${e}')" title="${e}">${e}</button>`
   ).join('');
@@ -7139,7 +8259,7 @@ function toggleEmojiPicker() {
 }
 
 function selectProfileEmoji(emoji) {
-  localStorage.setItem(PROFILE_EMOJI_KEY, emoji);
+  localStorage.setItem(PROFILE_EMOJI_KEY(), emoji);
   applyProfileEmoji();
   document.querySelectorAll('.myinfo-emoji-btn').forEach(btn => {
     btn.classList.toggle('selected', btn.textContent === emoji);
@@ -7154,6 +8274,12 @@ function selectProfileEmoji(emoji) {
       .set({ [user.uid]: { name, emoji, email: user.email || '', updatedAt: Date.now() } }, { merge: true })
       .catch(() => {});
   }
+
+  // 프로젝트 정보 탭 / 홈 모달의 소유자·참여자 행 즉시 갱신
+  _piRenderMembers();
+  _pmRenderMembers();
+  // 프로젝트 문서에 변경된 이모티콘 저장
+  if (_currentProjectId) _syncProfileToProject(_currentProjectId);
 }
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
@@ -7428,3 +8554,30 @@ document.addEventListener('click', function(e) {
 // ══════════════════════════════════════════════════
 // (서식 패널 제거됨)
 // ══════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════
+// ProseMirror 에디터 초기화
+// editor.js(ESM)가 로드 완료된 뒤 실행되도록 폴링.
+// ══════════════════════════════════════════════════
+(function initDPEditor() {
+  function tryMount() {
+    const el = document.getElementById('scriptEditor');
+    if (!el || !window.DPEditor) {
+      setTimeout(tryMount, 50);
+      return;
+    }
+    DPEditor.mount(el);
+    document.body.classList.add('pm-mode'); // PM 모드 CSS 분기용
+    DPEditor.onChange(() => {
+      if (typeof onEditorInput === 'function') onEditorInput();
+    });
+    DPEditor.onSelectionChange(() => {
+      if (typeof refreshTypeUI === 'function') refreshTypeUI();
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', tryMount);
+  } else {
+    tryMount();
+  }
+})();
