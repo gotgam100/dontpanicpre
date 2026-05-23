@@ -64,6 +64,12 @@ let _cursorTimer = null;
 let _myRole = 'editor'; // 'owner' | 'editor' | 'viewer'
 
 
+// 정책 문서 등에서 돌아올 때는 인증 상태와 무관하게 랜딩을 먼저 보여준다.
+if (location.hash === '#landing') {
+  localStorage.removeItem('dpre-landing-v1');
+  history.replaceState(null, '', location.pathname);
+}
+
 // #login 해시로 진입 시 랜딩 건너뛰고 바로 로그인창 표시
 if (location.hash === '#login') {
   localStorage.setItem('dpre-landing-v1', '1');
