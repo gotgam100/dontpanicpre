@@ -540,6 +540,42 @@ window.DPEditor = {
   },
 
   /**
+   * PM 문서를 직접 순회해 type과 text가 일치하는 elemTag 마크를 모두 제거.
+   * snum은 0-based heading 순번(씬 번호)으로 필터링, null이면 전체 문서 대상.
+   * removeElemSpanFromEditor의 fallback / 직접 호출용.
+   */
+  removeElemMarkByText(type, text, snum) {
+    if (!_view) return;
+    const { state } = _view;
+    const markType  = state.schema.marks.elemTag;
+    const tr = state.tr;
+    let removed = false;
+    let headingCount = 0;
+
+    state.doc.descendants((node, pos) => {
+      // heading 블록을 만날 때마다 씬 카운터 증가
+      if (node.isBlock && node.type.name === 'heading') {
+        headingCount++;
+        return true; // 자식(inline) 노드도 방문
+      }
+      // 인라인 텍스트 노드에 elemTag 마크가 있는지 확인
+      if (!node.isText) return;
+      const hasMark = node.marks.some(
+        m => m.type === markType && m.attrs.type === type
+      );
+      if (!hasMark) return;
+      if (node.text?.trim() !== text.trim()) return;
+      // snum 필터: null이면 전체, 숫자면 해당 씬만
+      if (snum !== null && snum !== undefined && headingCount !== +snum) return;
+
+      tr.removeMark(pos, pos + node.nodeSize, markType);
+      removed = true;
+    });
+
+    if (removed) _view.dispatch(tr);
+  },
+
+  /**
    * PM 문서에서 N번째 heading 노드를 찾아 커서 이동 + DOM 요소 반환.
    * sidebarGoToScene / scrollToScene 전용.
    * @param {number} seq  1-based heading 순번 (parseFromEditor의 seq와 동일)

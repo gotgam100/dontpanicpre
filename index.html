@@ -30,12 +30,13 @@
     }
   }
   </script>
-  <script type="module" src="assets/editor.js?v=20260523-projname-sync"></script>
-  <link rel="stylesheet" href="assets/app.css?v=20260523-pm-pagebreak-deco">
+  <script type="module" src="assets/editor.js?v=20260525-cross-del-sync"></script>
+  <link rel="stylesheet" href="assets/app.css?v=20260525-cross-del-sync">
   <link rel="stylesheet" href="assets/responsive.css">
 
   <!-- Theme init: apply before paint to avoid flash -->
   <script>(function () { var t = localStorage.getItem('dpre-theme') || 'dark'; document.documentElement.setAttribute('data-theme', t); })();</script>
+  <style id="bootOverlayGate">body.app-booting #projectsOverlay{display:none!important;visibility:hidden!important;pointer-events:none!important}</style>
 
   <!-- PWA -->
   <link rel="manifest" href="manifest.webmanifest">
@@ -63,7 +64,7 @@
   </script>
 </head>
 
-<body>
+<body class="app-booting">
 
   <!-- ══════════ 랜딩 페이지 ══════════ -->
   <div id="landingOverlay" class="hidden" aria-hidden="true">
@@ -541,8 +542,21 @@
             </div>
           </div>
           <button class="nav-btn" onclick="switchTab('chars',     this)">👤 인물설정</button>
-          <button class="nav-btn" onclick="switchTab('schedule',  this)">🎥 촬영 스케줄</button>
-          <button class="nav-btn" id="navCallSheetBtn" onclick="switchTab('callsheet', this)">🎬 일촬표</button>
+          <span class="nav-sep"></span>
+          <div class="list-nav-wrap">
+            <button class="nav-btn" id="schedNavBtn" onclick="toggleSchedNav(event)">📅 스케줄 ▾</button>
+            <div class="list-nav-dropdown" id="schedNavDropdown">
+              <button class="list-nav-item" onclick="switchSchedTab('schedule')">🎥 촬영 스케줄</button>
+              <button class="list-nav-item" onclick="switchSchedTab('callsheet')">🎬 일촬표</button>
+            </div>
+          </div>
+          <div class="list-nav-wrap">
+            <button class="nav-btn" id="crewNavBtn" onclick="toggleCrewNav(event)">👥 제작진 ▾</button>
+            <div class="list-nav-dropdown" id="crewNavDropdown">
+              <button class="list-nav-item" onclick="switchCrewTab('stafflist')">🎬 스태프 리스트</button>
+              <button class="list-nav-item" onclick="switchCrewTab('actorlist')">🎭 배우 리스트</button>
+            </div>
+          </div>
         </nav>
         <div class="header-right">
           <div id="presenceChips" class="presence-chips"></div>
@@ -603,8 +617,10 @@
         <button class="mobile-drawer-item" data-tab="costumelist" onclick="mobileTab('costumelist', this)">👗
           의상/분장</button>
         <button class="mobile-drawer-item" data-tab="chars" onclick="mobileTab('chars',    this)">👤 인물설정</button>
-        <button class="mobile-drawer-item" data-tab="schedule" onclick="mobileTab('schedule', this)">🎥 촬영 스케줄</button>
-        <button class="mobile-drawer-item" data-tab="callsheet" onclick="mobileTab('callsheet',this)">🎬 일촬표</button>
+        <button class="mobile-drawer-item" data-tab="schedule"   onclick="mobileTab('schedule',  this)">🎥 촬영 스케줄</button>
+        <button class="mobile-drawer-item" data-tab="callsheet"  onclick="mobileTab('callsheet', this)">🎬 일촬표</button>
+        <button class="mobile-drawer-item" data-tab="stafflist"  onclick="mobileTab('stafflist', this)">🎬 스태프 리스트</button>
+        <button class="mobile-drawer-item" data-tab="actorlist"  onclick="mobileTab('actorlist', this)">🎭 배우 리스트</button>
         <div class="mobile-drawer-sep"></div>
         <button class="mobile-drawer-item" data-tab="projinfo" onclick="mobileTab('projinfo', this)">📋 프로젝트 정보</button>
         <button class="mobile-drawer-item" data-tab="myinfo" onclick="mobileTab('myinfo',   this)">👤 내 정보</button>
@@ -635,6 +651,8 @@
                   onclick="setLineType('char')" title="인물명으로 변경 (⌘3)">인물명</button>
                 <button class="t-btn" data-type="dialogue" onmousedown="event.preventDefault()"
                   onclick="setLineType('dialogue')" title="대사로 변경 (⌘4)">대사</button>
+                <button class="fmt-btn" data-elem-type="insert" onmousedown="event.preventDefault()"
+                  onclick="addInsertToSelection(this)" title="선택 구간을 인서트 씬으로 지정">+인서트씬</button>
                 <div class="sep"></div>
                 <div class="list-nav-wrap" style="display:inline-flex;align-items:center">
                   <button class="t-btn" onclick="toggleInsertDrop(event)" id="insertDropBtn" title="페이지 삽입">삽입
@@ -680,29 +698,7 @@
                   <button class="t-btn" onclick="openFindReplace()" title="찾기/바꾸기 (⌘F)">🔍</button>
                 </div>
               </div>
-              <!-- 2행: 요소 등록 -->
-              <div class="editor-toolbar-row">
-                <span style="font-size:11px;color:var(--text-dim)">요소</span>
-                <button class="fmt-btn" onmousedown="event.preventDefault()" onclick="registerSelectedAsChar(this)"
-                  title="드래그한 텍스트를 인물로 등록">+인물</button>
-                <button class="fmt-btn" data-elem-type="costume" onmousedown="event.preventDefault()"
-                  onclick="addSceneElement('costume',this)" title="선택한 텍스트를 의상으로 등록">+의상</button>
-                <button class="fmt-btn" data-elem-type="makeup" onmousedown="event.preventDefault()"
-                  onclick="addSceneElement('makeup',this)" title="선택한 텍스트를 분장으로 등록">+분장</button>
-                <div class="sep"></div>
-                <button class="fmt-btn" data-elem-type="charProp" onmousedown="event.preventDefault()"
-                  onclick="addSceneElement('charProp',this)" title="선택한 텍스트를 인물소품으로 등록">+인물소품</button>
-                <button class="fmt-btn" data-elem-type="setProp" onmousedown="event.preventDefault()"
-                  onclick="addSceneElement('setProp',this)" title="선택한 텍스트를 공간소품으로 등록">+공간소품</button>
-                <div class="sep"></div>
-                <button class="fmt-btn" data-elem-type="vfx" onmousedown="event.preventDefault()"
-                  onclick="addSceneElement('vfx',this)" title="선택한 텍스트를 효과로 등록">+효과</button>
-                <button class="fmt-btn" data-elem-type="etc" onmousedown="event.preventDefault()"
-                  onclick="addSceneElement('etc',this)" title="선택한 텍스트를 기타로 등록">+기타</button>
-                <div class="sep"></div>
-                <button class="fmt-btn" data-elem-type="insert" onmousedown="event.preventDefault()"
-                  onclick="addInsertToSelection(this)" title="선택 구간을 인서트 씬으로 지정">+인서트씬</button>
-              </div>
+
             </div>
             <div id="emptyOverlay">
               <div class="empty-dont-panic">Don't Panic!</div>
@@ -847,21 +843,40 @@
 
         <!-- ═══ 인물설정 탭 ═══ -->
         <section class="tab" id="tab-chars">
-          <div class="chars-detail-panel" id="charsDetailPanel">
-            <div class="empty">
-              <div class="empty-icon">👤</div>
-              <div>우측에서 인물을 선택하세요</div>
-            </div>
-          </div>
-          <div class="chars-list-panel">
-            <div class="chars-list-header">인물 목록</div>
-            <div class="chars-list-scroll" id="charListItems">
-              <div class="empty" style="height:100px">
+          <!-- 상단: 가로 스크롤 카드 스트립 -->
+          <div class="chars-card-strip-wrap">
+            <div class="chars-card-strip" id="charCardStrip">
+              <div class="empty" style="height:100%;align-items:center;justify-content:center;display:flex;flex-direction:column;gap:6px;padding:0 20px">
                 <div class="empty-icon">👤</div>
                 <div>인물 없음</div>
               </div>
             </div>
           </div>
+          <!-- 하단: 세부 정보 -->
+          <div class="chars-detail-panel" id="charsDetailPanel">
+            <div class="empty">
+              <div class="empty-icon">👤</div>
+              <div>위에서 인물을 선택하세요</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ═══ 스태프 리스트 탭 ═══ -->
+        <section class="tab" id="tab-stafflist" style="flex-direction:column">
+          <div class="crew-toolbar">
+            <span class="crew-toolbar-title">🎬 스태프 리스트</span>
+            <button class="crew-add-btn" onclick="addStaffRow()">+ 행 추가</button>
+          </div>
+          <div class="crew-scroll" id="stafflistWrap"></div>
+        </section>
+
+        <!-- ═══ 배우 리스트 탭 ═══ -->
+        <section class="tab" id="tab-actorlist" style="flex-direction:column">
+          <div class="crew-toolbar">
+            <span class="crew-toolbar-title">🎭 배우 리스트</span>
+            <button class="crew-add-btn" onclick="addActorRow()">+ 행 추가</button>
+          </div>
+          <div class="crew-scroll" id="actorlistWrap"></div>
         </section>
 
         <!-- ═══ 촬영 스케줄 탭 ═══ -->
@@ -1192,7 +1207,7 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260523-policy-return" defer></script>
+  <script src="assets/app.js?v=20260525-cross-del-sync" defer></script>
   <script src="assets/responsive.js?v=20260519-json-folder" defer></script>
 
   <!-- ═══ 하단 탭바 (모바일 전용) ═══ -->
@@ -1375,6 +1390,36 @@
         <button class="hm-btn-ok" onclick="confirmHeading()">확인</button>
       </div>
     </div>
+  </div>
+
+  <!-- 우클릭 요소 등록 컨텍스트 메뉴 -->
+  <div id="elemCtxMenu" class="elem-ctx-menu">
+    <div class="elem-ctx-title">요소 등록</div>
+    <button class="elem-ctx-item" data-elem-type="char" onmousedown="event.preventDefault()" onclick="registerElemFromCtx('char')">
+      <span class="elem-ctx-dot" style="background:#f59e0b"></span>인물
+    </button>
+    <button class="elem-ctx-item" data-elem-type="costume" onmousedown="event.preventDefault()" onclick="registerElemFromCtx('costume')">
+      <span class="elem-ctx-dot" style="background:#a78bfa"></span>의상
+    </button>
+    <button class="elem-ctx-item" data-elem-type="makeup" onmousedown="event.preventDefault()" onclick="registerElemFromCtx('makeup')">
+      <span class="elem-ctx-dot" style="background:#f472b6"></span>분장
+    </button>
+    <button class="elem-ctx-item" data-elem-type="charProp" onmousedown="event.preventDefault()" onclick="registerElemFromCtx('charProp')">
+      <span class="elem-ctx-dot" style="background:#60a5fa"></span>인물소품
+    </button>
+    <button class="elem-ctx-item" data-elem-type="setProp" onmousedown="event.preventDefault()" onclick="registerElemFromCtx('setProp')">
+      <span class="elem-ctx-dot" style="background:#34d399"></span>공간 소품
+    </button>
+    <button class="elem-ctx-item" data-elem-type="vfx" onmousedown="event.preventDefault()" onclick="registerElemFromCtx('vfx')">
+      <span class="elem-ctx-dot" style="background:#f87171"></span>효과
+    </button>
+    <button class="elem-ctx-item" data-elem-type="etc" onmousedown="event.preventDefault()" onclick="registerElemFromCtx('etc')">
+      <span class="elem-ctx-dot" style="background:#94a3b8"></span>기타
+    </button>
+    <div id="elemCtxCancelSep" class="elem-ctx-sep" style="display:none"></div>
+    <button id="elemCtxCancelBtn" class="elem-ctx-item elem-ctx-cancel" onmousedown="event.preventDefault()" onclick="cancelElemFromCtx()" style="display:none">
+      <span class="elem-ctx-dot elem-ctx-cancel-icon">✕</span>등록 취소
+    </button>
   </div>
 
 </body>

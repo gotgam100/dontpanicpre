@@ -8,20 +8,60 @@ service cloud.firestore {
     }
 
     // ── 프로젝트 (top-level, 공유 지원) ──────────────────
-    // 소유자 또는 memberEmails에 포함된 사용자만 접근
     match /projects/{projectId} {
-      allow read, update: if request.auth != null && (
+      // 소유자, 참여자(편집자), 열람자 모두 읽기 가능
+      allow read: if request.auth != null && (
         resource.data.owner == request.auth.uid ||
-        request.auth.token.email in resource.data.memberEmails
+        request.auth.token.email in resource.data.memberEmails ||
+        request.auth.token.email in resource.data.get('viewerEmails', [])
       );
+
+      allow update: if request.auth != null && (
+        // 소유자 또는 기존 참여자(편집자)
+        resource.data.owner == request.auth.uid ||
+        request.auth.token.email in resource.data.memberEmails ||
+
+        // 편집자 공유 코드로 본인 이메일만 memberEmails에 추가
+        (
+          resource.data.get('shareCode', '') != '' &&
+          resource.data.get('shareCode', '').size() >= 6 &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberEmails']) &&
+          request.resource.data.get('memberEmails', []).size() == resource.data.get('memberEmails', []).size() + 1 &&
+          request.auth.token.email in request.resource.data.get('memberEmails', []) &&
+          !(request.auth.token.email in resource.data.get('memberEmails', []))
+        ) ||
+
+        // 열람자 공유 코드로 본인 이메일만 viewerEmails에 추가
+        (
+          resource.data.get('viewerCode', '') != '' &&
+          resource.data.get('viewerCode', '').size() >= 6 &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewerEmails']) &&
+          request.resource.data.get('viewerEmails', []).size() == resource.data.get('viewerEmails', []).size() + 1 &&
+          request.auth.token.email in request.resource.data.get('viewerEmails', []) &&
+          !(request.auth.token.email in resource.data.get('viewerEmails', []))
+        )
+      );
+
       allow create: if request.auth != null &&
         request.resource.data.owner == request.auth.uid;
       allow delete: if request.auth != null &&
         resource.data.owner == request.auth.uid;
     }
 
+    // 공유 코드 역방향 조회: 로그인한 사용자 누구나 읽기/쓰기
+    match /shareCodes/{code} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // 버전: 소유자·편집자만 쓰기, 열람자도 읽기 가능
     match /projects/{projectId}/versions/{versionId} {
-      allow read, write: if request.auth != null && (
+      allow read: if request.auth != null && (
+        get(/databases/$(database)/documents/projects/$(projectId)).data.owner == request.auth.uid ||
+        request.auth.token.email in get(/databases/$(database)/documents/projects/$(projectId)).data.memberEmails ||
+        request.auth.token.email in get(/databases/$(database)/documents/projects/$(projectId)).data.get('viewerEmails', [])
+      );
+      allow write: if request.auth != null && (
         get(/databases/$(database)/documents/projects/$(projectId)).data.owner == request.auth.uid ||
         request.auth.token.email in get(/databases/$(database)/documents/projects/$(projectId)).data.memberEmails
       );

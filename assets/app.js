@@ -63,15 +63,18 @@ const CURSOR_COLORS = ['#ef4444','#f97316','#a78bfa','#22c55e','#3b82f6','#f472b
 let _cursorTimer = null;
 let _myRole = 'editor'; // 'owner' | 'editor' | 'viewer'
 
+const _bootHash = location.hash;
+const _forceLandingOnBoot = _bootHash === '#landing';
+const _forceLoginOnBoot = _bootHash === '#login';
 
 // 정책 문서 등에서 돌아올 때는 인증 상태와 무관하게 랜딩을 먼저 보여준다.
-if (location.hash === '#landing') {
+if (_forceLandingOnBoot) {
   localStorage.removeItem('dpre-landing-v1');
   history.replaceState(null, '', location.pathname);
 }
 
 // #login 해시로 진입 시 랜딩 건너뛰고 바로 로그인창 표시
-if (location.hash === '#login') {
+if (_forceLoginOnBoot) {
   localStorage.setItem('dpre-landing-v1', '1');
   history.replaceState(null, '', location.pathname);
 }
@@ -143,6 +146,14 @@ function _isLandingVisible() {
   return el && !el.classList.contains('hidden');
 }
 
+let _bootGateDone = false;
+function finishInitialOverlayGate() {
+  if (_bootGateDone) return;
+  _bootGateDone = true;
+  document.body?.classList.remove('app-booting');
+  document.getElementById('bootOverlayGate')?.remove();
+}
+
 auth.onAuthStateChanged(async user => {
   if (user) {
     document.getElementById('loginOverlay')?.classList.add('hidden');
@@ -161,12 +172,25 @@ auth.onAuthStateChanged(async user => {
     } catch(e) {
       console.error('사용자 정보 표시 오류:', e);
     }
+    if (_forceLandingOnBoot) {
+      showLanding();
+      finishInitialOverlayGate();
+      return;
+    }
     // 랜딩이 떠 있는 경우 dismissLanding()이 showProjectsOverlay를 호출하므로 여기서는 건너뜀
-    if (!_isLandingVisible()) showProjectsOverlay();
+    if (!_isLandingVisible()) {
+      const restored = await restoreCurrentProjectOnBoot();
+      finishInitialOverlayGate();
+      if (!restored) showProjectsOverlay();
+    }
   } else {
     document.getElementById('projectsOverlay')?.classList.add('hidden');
     if (!_isLandingVisible()) {
       document.getElementById('loginOverlay')?.classList.remove('hidden');
+      // null 상태에서는 boot gate를 해제하지 않음:
+      // Firebase가 null → user 순으로 두 번 발화할 때 boot gate가
+      // 미리 제거되면 user 콜백 중 projectsOverlay가 잠깐 노출되는 버그 방지.
+      // 로그인 완료(user 콜백) 또는 로그인 액션 후에 해제됨.
     }
   }
 });
@@ -295,11 +319,13 @@ async function logout() {
 
   _currentFileName = null;
   _currentProjectId = null;
+  clearCurrentProjectMemory();
   _dataLoaded = false;
   await auth.signOut();
   if (window.DPEditor?.isReady()) DPEditor.setContent('');
   else ed().innerHTML = '';
-  scenes=[]; sched={}; charNotes={}; charInfo={}; manualCharsByScene={}; sceneNotes={}; sceneExtras={}; csLabels={}; globalChars=[]; charOrder=[]; hiddenChars=[]; propList=[]; costumeList=[]; pageNumberStyle=null;
+  scenes=[]; sched={}; charNotes={}; charInfo={}; manualCharsByScene={}; sceneNotes={}; sceneExtras={}; csLabels={}; globalChars=[]; charOrder=[]; hiddenChars=[]; propList=[]; costumeList=[]; staffList=[]; actorList=[]; pageNumberStyle=null;
+  _deletionLog.clear();
   calMonth = new Date();
   document.getElementById('projectName').value = '새 프로젝트';
   document.getElementById('authorName').value  = '';
@@ -647,17 +673,7 @@ async function openFsProject(idx) {
   if (!p) return;
   showToast('불러오는 중...');
   try {
-    const proj = await fsStoreGetProject(p.id);
-    _myRole = _getMyRole(proj);
-    updateSidebarRoleBadge();
-    _currentProjectId = p.id;
-    _currentFileName  = p.name;
-    document.getElementById('projectsOverlay')?.classList.add('hidden');
-    switchTab('editor', document.querySelector('.nav-btn'));
-    await applyLoadedData(proj.data || {});
-    addRecentProject(p.name, p.id);
-
-    _syncProfileToProject(p.id);
+    await openProjectById(p.id, p.name);
   } catch(e) { showToast('불러오기 오류: ' + e.message); }
 }
 
@@ -857,6 +873,97 @@ let sceneExtras       = {};       // { sceneNum: { costume, charProps, setProps,
 let propList          = [];       // [{ id, name, category, character, location, desc }]
 let propSort          = { charProp: 'default', setProp: 'default' }; // 'default'|'char'|'loc'|'status'
 let costumeList       = [];       // [{ id, name, character, category:'costume'|'makeup', status, desc }]
+let staffList         = [];       // [{ id, dept, role, name, phone, note }]
+let actorList         = [];       // [{ id, character, name, phone, note }]
+let _ctxSavedSel      = null;     // 우클릭 요소 등록용 저장된 선택 정보
+
+// ── 삭제 로그 (Firestore merge 시 삭제 항목 복원 방지용 tombstone) ──
+// Firestore 실시간 리스너가 remote 데이터를 merge할 때, 로컬에서 삭제한 항목을
+// 다시 복원하는 문제를 막기 위해 삭제 시각을 기록한다.
+const _deletionLog = {
+  // key: "snum::field::text"  value: timestamp(ms)  — 씬 단위 삭제
+  elem:       new Map(),
+  // key: "field::text"         value: timestamp(ms)  — 리스트 전체 삭제 (모든 씬)
+  elemGlobal: new Map(),
+  // key: "name::category"      value: timestamp(ms)
+  prop:    new Map(),
+  costume: new Map(),
+  TTL:     300000, // 5분 — 여러 계정 간 Firestore 전파까지 충분한 시간
+
+  _check(map, key) {
+    const ts = map.get(key);
+    if (!ts) return false;
+    if (Date.now() - ts > this.TTL) { map.delete(key); return false; }
+    return true;
+  },
+  // 씬 요소 (sceneExtras 배열 항목) — 씬 단위
+  addElem(snum, field, text) {
+    this.elem.set(`${snum}::${field}::${text}`, Date.now());
+  },
+  hasElem(snum, field, text) {
+    return this._check(this.elem, `${snum}::${field}::${text}`);
+  },
+  // 리스트 전체 삭제 시 — 씬 번호 무관하게 해당 (field, text) 차단
+  addElemGlobal(field, text) {
+    this.elemGlobal.set(`${field}::${text}`, Date.now());
+  },
+  hasElemGlobal(field, text) {
+    return this._check(this.elemGlobal, `${field}::${text}`);
+  },
+  // 소품리스트 항목
+  addProp(name, category) {
+    this.prop.set(`${name}::${category}`, Date.now());
+  },
+  hasProp(name, category) {
+    return this._check(this.prop, `${name}::${category}`);
+  },
+  // 의상/분장 리스트 항목
+  addCostume(name, category) {
+    this.costume.set(`${name}::${category}`, Date.now());
+  },
+  hasCostume(name, category) {
+    return this._check(this.costume, `${name}::${category}`);
+  },
+  // ── Firestore 직렬화 / 역직렬화 ──────────────────────────────
+  // 유효 항목만 plain object로 변환 (doSave에서 저장)
+  toFirestore() {
+    const now = Date.now();
+    const toObj = (map) => {
+      const obj = {};
+      for (const [k, ts] of map) {
+        if (now - ts < this.TTL) obj[k] = ts;
+      }
+      return obj;
+    };
+    return {
+      elem:       toObj(this.elem),
+      elemGlobal: toObj(this.elemGlobal),
+      prop:       toObj(this.prop),
+      costume:    toObj(this.costume),
+    };
+  },
+  // Firestore에서 받은 다른 계정의 삭제 로그를 병합 (최신 타임스탬프 우선)
+  mergeFromFirestore(d) {
+    if (!d) return;
+    const now = Date.now();
+    const mergeMap = (map, obj) => {
+      for (const [k, ts] of Object.entries(obj || {})) {
+        if (now - ts < this.TTL) {
+          const existing = map.get(k);
+          if (!existing || existing < ts) map.set(k, ts);
+        }
+      }
+    };
+    mergeMap(this.elem,       d.elem       || {});
+    mergeMap(this.elemGlobal, d.elemGlobal || {});
+    mergeMap(this.prop,       d.prop       || {});
+    mergeMap(this.costume,    d.costume    || {});
+  },
+  // 프로젝트 변경 시 전체 초기화
+  clear() {
+    this.elem.clear(); this.elemGlobal.clear(); this.prop.clear(); this.costume.clear();
+  },
+};
 let costumeSort       = 'default'; // 'default'|'char'|'category'|'status'
 let pageNumberStyle   = null;     // null | 'single' | 'total'
 let _pendingInsertRange = null;   // 인서트씬 등록 모달 대기 중 Range
@@ -864,8 +971,28 @@ let _pendingInsertMarkerId = null; // 모달 열기 전 삽입된 span 추적 ID
 
 const ensureArray = v => Array.isArray(v) ? v : [];
 function normalizeListState() {
-  propList = ensureArray(propList);
+  propList    = ensureArray(propList);
   costumeList = ensureArray(costumeList);
+  staffList   = ensureArray(staffList);
+  actorList   = ensureArray(actorList);
+}
+
+const DEFAULT_STAFF = [
+  { dept:'감독부',   role:'감독' },      { dept:'감독부',   role:'조감독' },
+  { dept:'감독부',   role:'제2조감독' },  { dept:'감독부',   role:'스크립터' },
+  { dept:'제작부',   role:'PD' },         { dept:'제작부',   role:'기획' },
+  { dept:'제작부',   role:'라인PD' },     { dept:'제작부',   role:'제작주임' },
+  { dept:'촬영부',   role:'촬영감독' },   { dept:'촬영부',   role:'B캠 촬영' },
+  { dept:'촬영부',   role:'포커스풀러' }, { dept:'촬영부',   role:'데이터매니저' },
+  { dept:'조명부',   role:'조명감독' },   { dept:'조명부',   role:'조명주임' },
+  { dept:'동시녹음', role:'녹음기사' },
+  { dept:'미술부',   role:'미술감독' },   { dept:'미술부',   role:'세트장식' },
+  { dept:'의상',     role:'의상감독' },   { dept:'분장',     role:'분장감독' },
+  { dept:'편집',     role:'편집기사' },
+];
+function _crewId() { return 'cr' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function _defaultStaff() {
+  return DEFAULT_STAFF.map(s => ({ id: _crewId(), dept: s.dept, role: s.role, name: '', phone: '', note: '' }));
 }
 
 // ── 앱 레벨 Undo 스택 ─────────────────────────────────
@@ -933,6 +1060,7 @@ let charOrder         = [];       // 인물 목록 표시 순서 (드래그로 �
 let hiddenChars       = [];       // 명시적으로 삭제된 인물 (스크립트에서 재감지 방지)
 let charDragName      = null;     // 드래그 중인 인물 이름
 let selectedChar      = null;
+let _charScenesOpen   = true;  // 등장씬 섹션 펼침/접기 상태
 let selectedNums      = new Set();
 let dragging          = null;
 let lastDragY         = 0;
@@ -1393,12 +1521,15 @@ function onEditorInput() {
   scheduleElemTagSync();
 
   // 인물 1개 삭제 + 1개 추가 = 이름 변경으로 판단 → 데이터 이전 (undo 중엔 skip)
+  // added[0]이 이미 charInfo 데이터를 가진 기존 인물이면 rename이 아닌 "다른 씬에 동일 인물 추가"로 처리 → skip
   if (!_applyingUndo) {
     const newChars = allSceneChars();
     const removed  = prevChars.filter(c => !newChars.includes(c));
     const added    = newChars.filter(c => !prevChars.includes(c));
     if (removed.length === 1 && added.length === 1) {
-      renameCharSilent(removed[0], added[0]);
+      const addedInfo = charInfo[added[0]];
+      const addedIsKnown = addedInfo && Object.keys(addedInfo).length > 0;
+      if (!addedIsKnown) renameCharSilent(removed[0], added[0]);
     }
   }
 
@@ -2732,6 +2863,268 @@ function refreshElemTagUI() {
 }
 document.addEventListener('selectionchange', refreshElemTagUI);
 
+// ── 우클릭 요소 등록 컨텍스트 메뉴 ─────────────────────────────
+// elem-tag span 위의 노드에서 씬 번호 추출 헬퍼
+function _getSnumFromNode(node) {
+  const para = getTopLevelEditorPara(node);
+  if (!para) return null;
+  if (para.dataset.sceneNum) {
+    const sc = scenes.find(s => String(s.number) === String(para.dataset.sceneNum));
+    if (sc) return sc.number;
+  }
+  const paras = [...(document.getElementById('scriptEditor')?.querySelectorAll('p') || [])];
+  const idx = paras.indexOf(para);
+  if (idx < 0) return null;
+  for (let i = idx; i >= 0; i--) {
+    const t = paras[i].dataset.type || guessType(paras[i].textContent);
+    if (t === 'heading' || t === 'insert') {
+      const scnum = paras[i].dataset.sceneNum;
+      if (scnum != null) {
+        const sc = scenes.find(s => String(s.number) === String(scnum));
+        return sc ? sc.number : null;
+      }
+      return null;
+    }
+  }
+  return null;
+}
+
+function _openElemCtxMenu(e) {
+  const edEl = document.getElementById('scriptEditor');
+  if (!edEl) return false;
+
+  // ── 1. 우클릭 대상이 elem-tag span 위인지 확인 ──────────────────
+  let elemSpan = null;
+  let node = e.target;
+  while (node && node !== edEl) {
+    if (node.classList?.contains('elem-tag')) { elemSpan = node; break; }
+    node = node.parentElement;
+  }
+
+  const sel     = window.getSelection();
+  const selText = sel ? sel.toString().trim() : '';
+
+  let text, snum, pmSel = null, savedRange = null, existingType = null;
+
+  if (elemSpan) {
+    // 이미 등록된 span 위를 우클릭 — 선택 없어도 동작
+    existingType = elemSpan.dataset.elemType || null;
+    text = elemSpan.textContent.trim();
+    snum = _getSnumFromNode(elemSpan);
+  } else if (selText && sel.rangeCount) {
+    // 텍스트 선택 후 우클릭
+    const range = sel.getRangeAt(0);
+    if (!edEl.contains(range.commonAncestorContainer)) return false;
+    text = selText;
+    snum = getSceneNumFromSelection(sel);
+    pmSel = window.DPEditor?.isReady() ? window.DPEditor.pmSelectionRange?.() : null;
+    savedRange = (!pmSel && !sel.isCollapsed) ? range.cloneRange() : null;
+    existingType = getSelectionElemType(); // 선택이 이미 태그된 span 안이면 해당 타입
+  } else {
+    return false; // 에디터 안이지만 선택도 없고 span도 아님 → 기본 메뉴
+  }
+
+  if (!text) return false;
+  _ctxSavedSel = { text, snum, pmSel, savedRange, existingType, elemSpan };
+
+  // ── 2. 메뉴 항목 상태 업데이트 ──────────────────────────────────
+  const menu = document.getElementById('elemCtxMenu');
+  menu.querySelectorAll('.elem-ctx-item[data-elem-type]').forEach(btn => {
+    const isActive = btn.dataset.elemType === existingType;
+    btn.classList.toggle('elem-ctx-item--active', isActive);
+  });
+  // 등록 취소 버튼: existingType 있을 때만 표시
+  const cancelBtn = document.getElementById('elemCtxCancelBtn');
+  const cancelSep = document.getElementById('elemCtxCancelSep');
+  const show = !!existingType;
+  if (cancelBtn) cancelBtn.style.display = show ? 'flex' : 'none';
+  if (cancelSep) cancelSep.style.display = show ? 'block' : 'none';
+
+  // ── 3. 위치 계산 ─────────────────────────────────────────────
+  menu.style.visibility = 'hidden';
+  menu.style.left = '0px';
+  menu.style.top  = '0px';
+  menu.classList.add('open');
+  const rect = menu.getBoundingClientRect();
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let x = e.clientX, y = e.clientY;
+  if (x + rect.width  > vw - 8) x = vw - rect.width  - 8;
+  if (y + rect.height > vh - 8) y = vh - rect.height - 8;
+  if (x < 8) x = 8; if (y < 8) y = 8;
+  menu.style.left = x + 'px';
+  menu.style.top  = y + 'px';
+  menu.style.visibility = '';
+  return true;
+}
+
+function hideElemCtxMenu() {
+  document.getElementById('elemCtxMenu')?.classList.remove('open');
+  _ctxSavedSel = null;
+}
+
+// ── 등록 취소: 이미 등록된 요소를 제거 ─────────────────────────────
+function cancelElemFromCtx() {
+  const saved = _ctxSavedSel;
+  hideElemCtxMenu();
+  if (!saved || !saved.existingType) return;
+  const { text, snum, existingType: type, elemSpan } = saved;
+  const FIELD = { costume:'costumeItems', makeup:'makeupItems', charProp:'charPropItems', setProp:'setPropItems', vfx:'vfxItems', etc:'etcItems', location:'locationItems' };
+  const field = FIELD[type];
+  if (!field) return; // char 타입은 이 경로 미사용
+
+  pushUndo();
+  if (snum) _deletionLog.addElem(snum, field, text); // Firestore merge 시 복원 방지
+  if (snum && sceneExtras[snum]?.[field]) {
+    const idx = sceneExtras[snum][field].findIndex(i => getItemText(i) === text);
+    if (idx >= 0) sceneExtras[snum][field].splice(idx, 1);
+  }
+  if (snum && type !== 'location') removeFromListField(snum, ITEMS_TO_LIST[field], text);
+
+  // 에디터에서 하이라이트 제거
+  if (elemSpan) {
+    if (window.DPEditor?.isReady()) {
+      window.DPEditor.removeElemTagSpan(elemSpan);
+    } else {
+      elemSpan.replaceWith(...elemSpan.childNodes);
+    }
+  } else if (snum) {
+    removeElemSpanFromEditor(snum, type, text);
+  }
+
+  if (type === 'charProp' || type === 'setProp') {
+    removePropFromList(text, type);
+    if (document.getElementById('tab-proplist')?.classList.contains('on')) renderPropList();
+  }
+  if (type === 'costume' || type === 'makeup') removeCostumeFromList(text, type);
+  save();
+  refreshElementLinkedViews(type);
+}
+
+function registerElemFromCtx(type) {
+  const saved = _ctxSavedSel;
+  hideElemCtxMenu();
+  if (!saved || !saved.text) return;
+  const { text, snum, pmSel, savedRange } = saved;
+
+  // ── 인물 등록 ──────────────────────────────────────────────
+  if (type === 'char') {
+    if (text.length > 20) { alert('선택한 텍스트가 너무 깁니다. 인물 이름만 선택해주세요.'); return; }
+    pushUndo();
+    if (!charInfo[text]) charInfo[text] = {};
+    if (!globalChars.includes(text)) globalChars.push(text);
+    hiddenChars = hiddenChars.filter(n => n !== text);
+    if (snum) {
+      if (!manualCharsByScene[snum]) manualCharsByScene[snum] = [];
+      if (!manualCharsByScene[snum].includes(text)) manualCharsByScene[snum].push(text);
+    }
+    save();
+    renderCharTab();
+    renderSidebar();
+    if (document.getElementById('tab-breakdown')?.classList.contains('on')) renderBreakdown();
+    return;
+  }
+
+  // ── 기타 요소 등록 (의상/분장/소품/효과/기타) ────────────────────
+  const FIELD = { costume:'costumeItems', makeup:'makeupItems', charProp:'charPropItems', setProp:'setPropItems', vfx:'vfxItems', etc:'etcItems', location:'locationItems' };
+
+  if (!snum) { alert('씬 안의 텍스트를 선택해주세요.'); return; }
+  if (!sceneExtras[snum]) sceneExtras[snum] = {};
+  const field = FIELD[type];
+  if (!sceneExtras[snum][field]) sceneExtras[snum][field] = [];
+
+  // 토글: 이미 동일 타입으로 등록 → 제거
+  const existingIdx = sceneExtras[snum][field].findIndex(i => getItemText(i) === text);
+  if (existingIdx >= 0) {
+    pushUndo();
+    _deletionLog.addElem(snum, field, text); // Firestore merge 시 복원 방지
+    sceneExtras[snum][field].splice(existingIdx, 1);
+    if (type !== 'location') removeFromListField(snum, ITEMS_TO_LIST[field], text);
+    removeElemSpanFromEditor(snum, type, text);
+    if (type === 'charProp' || type === 'setProp') {
+      removePropFromList(text, type);
+      if (document.getElementById('tab-proplist')?.classList.contains('on')) renderPropList();
+    }
+    if (type === 'costume' || type === 'makeup') removeCostumeFromList(text, type);
+    save();
+    refreshElementLinkedViews(type);
+    return;
+  }
+
+  // 신규 등록
+  pushUndo();
+  _lastElemRegTime = Date.now();
+  // 재등록 시 삭제 로그 항목 제거 — Firestore merge가 방금 추가한 항목을 필터링하지 않도록
+  _deletionLog.elem.delete(`${snum}::${field}::${text}`);
+  _deletionLog.elemGlobal.delete(`${field}::${text}`);
+  if (type === 'charProp' || type === 'setProp') _deletionLog.prop.delete(`${text}::${type}`);
+  if (type === 'costume'  || type === 'makeup')  _deletionLog.costume.delete(`${text}::${type}`);
+  const item = { text, fromEditor: !window.DPEditor?.isReady() };
+  sceneExtras[snum][field].push(item);
+  if (type !== 'location') appendToListField(snum, ITEMS_TO_LIST[field], text);
+
+  if (type === 'charProp' || type === 'setProp') {
+    syncPropToList(text, type, snum);
+    if (type === 'setProp') autoFillPropLocation(text, snum);
+    if (document.getElementById('tab-proplist')?.classList.contains('on')) renderPropList();
+  }
+  if (type === 'costume' || type === 'makeup') {
+    syncCostumeToList(text, type, snum, { text, fromEditor: true });
+    if (document.getElementById('tab-costumelist')?.classList.contains('on')) renderCostumeList();
+  }
+  if (type === 'location' && !locationInfo[text]) {
+    locationInfo[text] = { address: '', setPropItems: [] };
+  }
+  if (type === 'setProp') {
+    const scene = scenes.find(s => s.number === snum);
+    const sceneLocs = new Set();
+    if (scene?.loc) sceneLocs.add(scene.loc);
+    (sceneExtras[snum]?.locationItems || []).forEach(it => { const n = getItemText(it); if (n) sceneLocs.add(n); });
+    sceneLocs.forEach(loc => {
+      if (!locationInfo[loc]) locationInfo[loc] = { address: '', setPropItems: [] };
+      if (!locationInfo[loc].setPropItems) locationInfo[loc].setPropItems = [];
+      if (!locationInfo[loc].setPropItems.some(i => getItemText(i) === text))
+        locationInfo[loc].setPropItems.push(text);
+    });
+  }
+
+  // 하이라이트 적용 (저장된 선택 범위 사용)
+  let highlighted = false;
+  if (pmSel) {
+    window.DPEditor.applyElemTag(type, pmSel.from, pmSel.to);
+    highlighted = true;
+  } else if (!window.DPEditor?.isReady() && savedRange) {
+    try {
+      const span = document.createElement('span');
+      span.className = `elem-tag elem-${type}`;
+      span.dataset.elemType = type;
+      span.appendChild(savedRange.extractContents());
+      savedRange.insertNode(span);
+      highlighted = true;
+    } catch(e) { /* 단락 경계 걸친 선택 — 무시 */ }
+  }
+  if (!highlighted && !window.DPEditor?.isReady()) item.fromEditor = false;
+  save();
+  if (document.getElementById('tab-scenebd')?.classList.contains('on'))   renderSceneBd();
+  if (document.getElementById('tab-breakdown')?.classList.contains('on')) renderBreakdown();
+  if (document.getElementById('tab-loclist')?.classList.contains('on'))   renderLocList();
+  renderSidebar();
+}
+
+// 컨텍스트 메뉴 트리거 (에디터 내 우클릭)
+document.addEventListener('contextmenu', function(e) {
+  const edEl = document.getElementById('scriptEditor');
+  if (!edEl) return;
+  if (!edEl.contains(e.target)) return; // 에디터 밖이면 기본 메뉴 허용
+  hideElemCtxMenu();
+  const showed = _openElemCtxMenu(e);
+  if (showed) e.preventDefault();
+});
+
+// 외부 클릭 시 컨텍스트 메뉴 닫기
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('#elemCtxMenu')) hideElemCtxMenu();
+});
+
 function getSceneNumFromSelection(sel) {
   if (!sel || !sel.rangeCount) return null;
   const range = sel.getRangeAt(0);
@@ -2807,13 +3200,14 @@ function addSceneElement(type, btn) {
     if (!spanText || !snum || !field) return;
 
     pushUndo();
+    _deletionLog.addElem(snum, field, spanText); // Firestore merge 시 복원 방지
     if (sceneExtras[snum]?.[field]) {
       const idx = sceneExtras[snum][field].findIndex(i => getItemText(i) === spanText);
       if (idx >= 0) sceneExtras[snum][field].splice(idx, 1);
     }
     if (type !== 'location') removeFromListField(snum, ITEMS_TO_LIST[field], spanText);
     if (type === 'charProp' || type === 'setProp') removePropFromList(spanText, type);
-    if (type === 'costume' || type === 'makeup') removeCostumeFromList(spanText, type);
+    if (type === 'makeup' || type === 'costume') removeCostumeFromList(spanText, type);
     if (window.DPEditor?.isReady()) {
       window.DPEditor.removeElemTagSpan(activeSpan);
     } else {
@@ -2842,6 +3236,7 @@ function addSceneElement(type, btn) {
   const existingIdx = sceneExtras[snum][field].findIndex(i => getItemText(i) === text);
   if (existingIdx >= 0) {
     pushUndo();
+    _deletionLog.addElem(snum, field, text); // Firestore merge 시 복원 방지
     sceneExtras[snum][field].splice(existingIdx, 1);
     if (type !== 'location') removeFromListField(snum, ITEMS_TO_LIST[field], text);
     removeElemSpanFromEditor(snum, type, text);
@@ -2861,6 +3256,11 @@ function addSceneElement(type, btn) {
   // ── 신규 등록 ────────────────────────────────────────────
   pushUndo();
   _lastElemRegTime = Date.now(); // syncElemTagsFromEditor 오탐 방지
+  // 재등록 시 삭제 로그 항목 제거 — Firestore merge가 방금 추가한 항목을 필터링하지 않도록
+  _deletionLog.elem.delete(`${snum}::${field}::${text}`);
+  _deletionLog.elemGlobal.delete(`${field}::${text}`);
+  if (type === 'charProp' || type === 'setProp') _deletionLog.prop.delete(`${text}::${type}`);
+  if (type === 'costume'  || type === 'makeup')  _deletionLog.costume.delete(`${text}::${type}`);
   // PM 모드에서는 fromEditor: false — PM 마크는 하이라이트용이고 데이터는 sceneExtras에서 독립 관리
   // 레거시 contentEditable 모드에서만 fromEditor: true (span 삭제 시 자동 제거)
   const item = { text, fromEditor: !window.DPEditor?.isReady() };
@@ -3037,20 +3437,32 @@ function removeElemSpanFromEditor(snum, type, text) {
   if (!edEl) return;
 
   if (window.DPEditor?.isReady()) {
-    // PM 모드: PM이 렌더한 span DOM을 찾아 removeElemTagSpan으로 제거
+    // PM 모드: 1차 — DOM span 탐색
+    // PM이 re-render할 때 dataset.sceneNum이 지워지므로 heading의 순서 카운팅으로 씬 식별
     const paras = [...edEl.querySelectorAll('p')];
+    let headingCount = 0;
     let inScene = false;
+    let foundByDOM = false;
     for (const p of paras) {
-      const isTargetScene = String(p.dataset.sceneNum) === String(snum);
       const pType = p.dataset.type || guessType(p.textContent);
-      if (pType === 'heading') { inScene = isTargetScene; continue; }
-      if (!isTargetScene && !inScene) continue;
+      if (pType === 'heading') {
+        headingCount++;
+        inScene = (headingCount === +snum);
+        continue;
+      }
+      if (!inScene) continue;
       for (const span of p.querySelectorAll(`span.elem-${type}`)) {
         if (span.textContent.trim() === text.trim()) {
           window.DPEditor.removeElemTagSpan(span);
-          return;
+          foundByDOM = true;
+          break;
         }
       }
+      if (foundByDOM) break;
+    }
+    // 2차 fallback — PM 문서 직접 순회 (DOM에서 못 찾은 엣지케이스 대응)
+    if (!foundByDOM) {
+      window.DPEditor.removeElemMarkByText(type, text, snum);
     }
     return;
   }
@@ -3087,6 +3499,7 @@ function removeSceneElement(snum, field, idx) {
   if (sceneExtras[snum] && sceneExtras[snum][field]) {
     const text = getItemText(sceneExtras[snum][field][idx]);
     const type = FIELD_TO_TYPE[field];
+    _deletionLog.addElem(snum, field, text); // Firestore merge 시 복원 방지
     sceneExtras[snum][field].splice(idx, 1);
     removeFromListField(snum, ITEMS_TO_LIST[field], text);
     if (type) removeElemSpanFromEditor(snum, type, text);
@@ -3898,23 +4311,26 @@ function charDrop(e, targetName) {
 }
 
 function renderCharTab() {
-  const all = getOrderedChars();
-  const listEl = document.getElementById('charListItems');
+  const all   = getOrderedChars();
+  const strip = document.getElementById('charCardStrip');
 
   if (!all.length) {
-    listEl.innerHTML = `<div class="empty" style="height:80px"><div>인물 없음</div></div>`;
+    strip.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;width:100%;padding:20px 0;color:var(--text-dim)"><div style="font-size:28px">👤</div><div style="font-size:12px">스크립트를 먼저 입력하세요</div></div>`;
     document.getElementById('charsDetailPanel').innerHTML =
       `<div class="empty"><div class="empty-icon">👤</div><div>스크립트를 먼저 입력하세요</div></div>`;
     return;
   }
 
-  listEl.innerHTML = all.map(name => {
-    const info = charInfo[name] || {};
-    const sub  = [info.gender, info.age].filter(Boolean).join(', ');
-    const dot  = info.color
-      ? `<span class="char-color-dot" style="background:${info.color}"></span>`
-      : '';
-    return `<div class="char-list-item ${name===selectedChar?'on':''}"
+  // 성별 기본 이모지 (커스텀 이모지 없을 때)
+  const genderEmoji = (g, custom) => custom || ({ '남': '🧑', '여': '👩', 'X': '🧑' }[g] || '👤');
+
+  strip.innerHTML = all.map(name => {
+    const info       = charInfo[name] || {};
+    const sub        = [info.gender, info.age].filter(Boolean).join(' · ');
+    const colorBar   = info.color
+      ? `<div class="char-card-color-bar" style="background:${info.color}"></div>` : '';
+    const isOn       = name === selectedChar ? ' on' : '';
+    return `<div class="char-card${isOn}"
       data-char="${esc(name)}"
       draggable="true"
       onclick="selectChar(this.dataset.char)"
@@ -3922,8 +4338,12 @@ function renderCharTab() {
       ondragend="charDragEnd(event)"
       ondragover="charDragOver(event)"
       ondrop="charDrop(event,this.dataset.char)">
-      <div class="char-list-name" style="display:flex;align-items:center;">${dot}${esc(name)}<span style="margin-left:auto;padding-left:8px;opacity:.28;font-size:11px;cursor:grab;user-select:none">⠿</span></div>
-      <div class="char-list-sub">${sub ? esc(sub)+' · ' : ''}${scenes.filter(s=>getAllChars(s).includes(name)).length}개 씬</div>
+      ${colorBar}
+      <div class="char-card-emoji" title="이모지 변경"
+        onclick="event.stopPropagation();openCharEmojiPicker('${esc(name)}',this)"
+      >${genderEmoji(info.gender, info.emoji)}</div>
+      <div class="char-card-name">${esc(name)}</div>
+      ${sub ? `<div class="char-card-sub">${esc(sub)}</div>` : ''}
     </div>`;
   }).join('');
 
@@ -3942,6 +4362,17 @@ function renderCharDetail(name) {
   const charScenes = scenes.filter(s => getAllChars(s).includes(name));
   const note       = charNotes[name] || '';
 
+  const scenesHtml = charScenes.length
+    ? charScenes.map(s => {
+        const num  = s.displayNum || s.number;
+        const loc  = s.loc || '';
+        const ie   = s.ie  || '';
+        const time = TIME_LABEL[s.time] || s.time || '';
+        const parts = [loc, ie, time].filter(Boolean).join(', ');
+        return `<div class="char-scene-row">S#${num}. ${esc(parts)}</div>`;
+      }).join('')
+    : `<div style="color:var(--text-dim);font-size:12px;padding:4px 0">등장 씬 없음</div>`;
+
   document.getElementById('charsDetailPanel').innerHTML = `
     <div class="char-detail-inner">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
@@ -3949,76 +4380,49 @@ function renderCharDetail(name) {
         <button onclick="deleteChar('${esc(name)}')" style="padding:3px 10px;border-radius:5px;border:1px solid #f87171;background:rgba(248,113,113,.1);color:#f87171;font-size:11px;cursor:pointer;font-family:inherit;white-space:nowrap">삭제</button>
       </div>
 
-      <div style="display:flex;gap:0;align-items:flex-start;flex-wrap:wrap">
-        <!-- 왼쪽: 캐릭터 정보 -->
-        <div class="char-meta-row" style="flex:1;min-width:180px">
-          <div class="char-meta-field">
-            <div class="char-meta-label">성별</div>
-            <div class="gender-btns">
-              <button class="gender-btn ${info.gender==='남'?'on':''}" onclick="setCharGender('${esc(name)}','남')">남</button>
-              <button class="gender-btn ${info.gender==='여'?'on':''}" onclick="setCharGender('${esc(name)}','여')">여</button>
-              <button class="gender-btn ${info.gender==='X'?'on':''}"  onclick="setCharGender('${esc(name)}','X')">X</button>
-            </div>
-          </div>
-          <div class="char-meta-field">
-            <div class="char-meta-label">나이 ${info.age&&charInfo[name]&&charInfo[name]._autoAge?'<span style="font-size:10px;color:var(--accent)">(자동감지)</span>':''}</div>
-            <input class="char-age-input" type="text"
-              value="${esc(info.age||'')}"
-              placeholder="예: 30대, 25세"
-              oninput="setCharAge('${esc(name)}',this.value)">
-          </div>
-          <div class="char-meta-field">
-            <div class="char-meta-label">인물 색상</div>
-            <div class="char-color-wrap">
-              <div class="char-color-swatch ${info.color?'':'no-color'}"
-                style="${info.color?'background:'+info.color:''}"
-                title="색상 선택"
-                onclick="document.getElementById('colorPk-${esc(name)}').click()"></div>
-              <input type="color" id="colorPk-${esc(name)}"
-                value="${info.color||'#7c8cf8'}"
-                style="position:absolute;opacity:0;pointer-events:none;width:0;height:0"
-                oninput="previewCharColor('${esc(name)}',this.value)"
-                onchange="setCharColor('${esc(name)}',this.value)">
-              ${info.color
-                ? `<button class="char-color-reset" onclick="clearCharColor('${esc(name)}')">초기화</button>`
-                : ''}
-            </div>
+      <div class="char-meta-row">
+        <div class="char-meta-field">
+          <div class="char-meta-label">성별</div>
+          <div class="gender-btns">
+            <button class="gender-btn ${info.gender==='남'?'on':''}" onclick="setCharGender('${esc(name)}','남')">남</button>
+            <button class="gender-btn ${info.gender==='여'?'on':''}" onclick="setCharGender('${esc(name)}','여')">여</button>
+            <button class="gender-btn ${info.gender==='X'?'on':''}"  onclick="setCharGender('${esc(name)}','X')">X</button>
           </div>
         </div>
-
-        <!-- 구분선 -->
-        <div style="width:1px;background:var(--border);align-self:stretch;margin:0 22px;flex-shrink:0"></div>
-
-        <!-- 오른쪽: 사무 정보 (가로 나란히) -->
-        <div style="display:flex;flex-direction:row;gap:14px;align-items:flex-end;flex-wrap:wrap">
-          <div class="char-meta-field">
-            <div class="char-meta-label">🎬 배우 이름</div>
-            <input class="char-age-input" type="text"
-              value="${esc(info.actor||'')}"
-              placeholder="배우 이름"
-              oninput="setCharActor('${esc(name)}',this.value)">
-          </div>
-          <div class="char-meta-field">
-            <div class="char-meta-label">📞 연락처</div>
-            <input class="char-age-input" type="text"
-              value="${esc(info.phone||'')}"
-              placeholder="연락처"
-              oninput="setCharPhone('${esc(name)}',this.value)">
+        <div class="char-meta-field">
+          <div class="char-meta-label">나이 ${info.age&&charInfo[name]&&charInfo[name]._autoAge?'<span style="font-size:10px;color:var(--accent)">(자동감지)</span>':''}</div>
+          <input class="char-age-input" type="text"
+            value="${esc(info.age||'')}"
+            placeholder="예: 30대, 25세"
+            oninput="setCharAge('${esc(name)}',this.value)">
+        </div>
+        <div class="char-meta-field">
+          <div class="char-meta-label">인물 색상</div>
+          <div class="char-color-wrap">
+            <div class="char-color-swatch ${info.color?'':'no-color'}"
+              style="${info.color?'background:'+info.color:''}"
+              title="색상 선택"
+              onclick="document.getElementById('colorPk-${esc(name)}').click()"></div>
+            <input type="color" id="colorPk-${esc(name)}"
+              value="${info.color||'#7c8cf8'}"
+              style="position:absolute;opacity:0;pointer-events:none;width:0;height:0"
+              oninput="previewCharColor('${esc(name)}',this.value)"
+              onchange="setCharColor('${esc(name)}',this.value)">
+            ${info.color
+              ? `<button class="char-color-reset" onclick="clearCharColor('${esc(name)}')">초기화</button>`
+              : ''}
           </div>
         </div>
       </div>
 
-      <div>
-        <div class="char-scenes-label">등장 씬 (${charScenes.length})</div>
-        <div class="char-scene-chips">
-          ${charScenes.length ? charScenes.map(s=>`
-            <div class="char-scene-chip">
-              <span class="badge ${ieBadge(s.ie)}" style="font-size:9px">${s.ie}</span>
-              <span style="font-weight:700">S#${s.displayNum || s.number}</span>
-              <span style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;flex:1">${esc(s.loc)}</span>
-              <span class="badge ${timeBadge(s.time)}" style="font-size:9px">${TIME_LABEL[s.time]}</span>
-            </div>`).join('')
-          : '<span style="color:var(--text-dim);font-size:12px">등장 씬 없음</span>'}
+      <!-- 등장 씬 (접기/펼치기) -->
+      <div class="char-scenes-section">
+        <div class="char-scenes-label char-scenes-toggle" onclick="toggleCharScenes()">
+          등장 씬 (${charScenes.length})
+          <span class="char-scenes-chevron">${_charScenesOpen ? '▲' : '▼'}</span>
+        </div>
+        <div class="char-scene-list" id="charSceneList" style="display:${_charScenesOpen?'block':'none'}">
+          ${scenesHtml}
         </div>
       </div>
 
@@ -4044,7 +4448,7 @@ function renameCharSilent(oldName, newName) {
   if (!newName || newName === oldName) return;
   if (!charInfo[newName]) charInfo[newName] = {};
   const old = charInfo[oldName] || {};
-  ['gender','age','actor','phone','color','_manualGender','_autoAge'].forEach(k => {
+  ['gender','age','actor','phone','color','emoji','_manualGender','_manualAge','_autoAge'].forEach(k => {
     if (old[k] !== undefined && charInfo[newName][k] === undefined)
       charInfo[newName][k] = old[k];
   });
@@ -4089,7 +4493,7 @@ function renameChar(oldName, newName) {
   if (!charInfo[newName]) charInfo[newName] = {};
   const old = charInfo[oldName] || {};
   // 기존 데이터가 없는 필드만 이전
-  ['gender','age','actor','phone','color','_manualGender','_autoAge'].forEach(k => {
+  ['gender','age','actor','phone','color','emoji','_manualGender','_manualAge','_autoAge'].forEach(k => {
     if (old[k] !== undefined && charInfo[newName][k] === undefined) charInfo[newName][k] = old[k];
   });
   delete charInfo[oldName];
@@ -4218,6 +4622,56 @@ function syncCharActorToCallsheets(charName) {
     row.actor = actorName;
   });
   if (document.getElementById('tab-callsheet')?.classList.contains('on')) renderCS();
+}
+
+// ── 인물 이모지 변경 ─────────────────────────────
+const CHAR_EMOJIS = [
+  '👤','🧑','👩','👨','🧒','👧','👦','🧓','👴','👵',
+  '👮','🕵️','💂','🧑‍⚕️','👩‍⚕️','🧑‍🏫','👩‍🍳','🧑‍🎨','👩‍🎤','🧑‍💼',
+  '🥷','🧙','🧛','🧟','🧜','🧝','🤴','👸','🤵','👰',
+  '😀','😎','🥸','😈','👿','🤡','💀','👻','🎭','🎬',
+];
+
+function openCharEmojiPicker(name, anchorEl) {
+  // 기존 피커 닫기
+  document.getElementById('charEmojiPicker')?.remove();
+
+  const picker = document.createElement('div');
+  picker.id = 'charEmojiPicker';
+  picker.className = 'char-emoji-picker';
+  picker.innerHTML = CHAR_EMOJIS.map(e =>
+    `<span class="char-emoji-opt" onclick="setCharEmoji('${esc(name)}','${e}')">${e}</span>`
+  ).join('') +
+  `<div class="char-emoji-reset" onclick="setCharEmoji('${esc(name)}','')">기본값으로</div>`;
+
+  // 위치: 카드 아래쪽
+  const rect = anchorEl.getBoundingClientRect();
+  picker.style.cssText = `position:fixed;top:${rect.bottom+6}px;left:${rect.left}px`;
+
+  document.body.appendChild(picker);
+  // 바깥 클릭 시 닫기
+  setTimeout(() => {
+    document.addEventListener('click', function close(e) {
+      if (!picker.contains(e.target)) { picker.remove(); document.removeEventListener('click', close); }
+    });
+  }, 0);
+}
+
+function setCharEmoji(name, emoji) {
+  if (!charInfo[name]) charInfo[name] = {};
+  charInfo[name].emoji = emoji || undefined;
+  if (!emoji) delete charInfo[name].emoji;
+  document.getElementById('charEmojiPicker')?.remove();
+  save(); renderCharTab();
+}
+
+// ── 등장씬 접기/펼치기 ───────────────────────────
+function toggleCharScenes() {
+  _charScenesOpen = !_charScenesOpen;
+  const list    = document.getElementById('charSceneList');
+  const chevron = document.querySelector('.char-scenes-chevron');
+  if (list)    list.style.display = _charScenesOpen ? 'block' : 'none';
+  if (chevron) chevron.textContent = _charScenesOpen ? '▲' : '▼';
 }
 
 function deleteChar(name) {
@@ -5194,9 +5648,17 @@ function switchTab(id, btn) {
   if(id==='breakdown' || id==='loclist' || id==='proplist' || id==='costumelist') {
     document.getElementById('listNavBtn')?.classList.add('on');
   }
+  if(id==='schedule' || id==='callsheet') {
+    document.getElementById('schedNavBtn')?.classList.add('on');
+  }
+  if(id==='stafflist' || id==='actorlist') {
+    document.getElementById('crewNavBtn')?.classList.add('on');
+  }
   if(id==='breakdown')    renderBreakdown();
   if(id==='scenebd')      renderSceneBd();
   if(id==='chars')        renderCharTab();
+  if(id==='stafflist')    renderStaffList();
+  if(id==='actorlist')    renderActorList();
   if(id==='schedule')     renderSchedule();
   if(id==='callsheet')    { renderCSSelect(); renderCS(); requestAnimationFrame(scaleCSSheet); }
   if(id==='loclist')      renderLocList();
@@ -5409,6 +5871,7 @@ async function piDeleteProject() {
   if (!confirm(`"${_piCurrentProj.name}" 프로젝트를 삭제할까요?\n버전 히스토리도 모두 삭제됩니다.`)) return;
   try {
     const pid = _currentProjectId;
+    clearCurrentProjectMemory();
     _currentProjectId = null; _currentFileName = null; _dataLoaded = false;
     _piCurrentProj = null;
     if (_piPresenceUnsub) { _piPresenceUnsub(); _piPresenceUnsub = null; }
@@ -5422,6 +5885,7 @@ async function piLeaveProject() {
   if (!_piCurrentProj) return;
   if (!confirm(`"${_piCurrentProj.name}" 프로젝트에서 나가시겠습니까?`)) return;
   try {
+    clearCurrentProjectMemory();
     await fsStoreRemoveMember(_currentProjectId, auth.currentUser.email);
     _currentProjectId = null; _currentFileName = null; _dataLoaded = false;
     _piCurrentProj = null;
@@ -5552,10 +6016,19 @@ async function piShareViewerCode() {
   await _copyText(text, '열람자 초대 메시지가 복사됐습니다');
 }
 
-function toggleListNav(e) { e.stopPropagation(); document.getElementById('listNavDropdown').classList.toggle('open'); }
+function toggleListNav(e) { e.stopPropagation(); closeSchedNav(); closeCrewNav(); document.getElementById('listNavDropdown').classList.toggle('open'); }
 function closeListNav() { document.getElementById('listNavDropdown')?.classList.remove('open'); }
 function switchListTab(id) { closeListNav(); switchTab(id, null); document.getElementById('listNavBtn')?.classList.add('on'); }
-document.addEventListener('click', closeListNav);
+
+function toggleSchedNav(e) { e.stopPropagation(); closeListNav(); closeCrewNav(); document.getElementById('schedNavDropdown').classList.toggle('open'); }
+function closeSchedNav() { document.getElementById('schedNavDropdown')?.classList.remove('open'); }
+function switchSchedTab(id) { closeSchedNav(); switchTab(id, null); document.getElementById('schedNavBtn')?.classList.add('on'); }
+
+function toggleCrewNav(e) { e.stopPropagation(); closeListNav(); closeSchedNav(); document.getElementById('crewNavDropdown').classList.toggle('open'); }
+function closeCrewNav() { document.getElementById('crewNavDropdown')?.classList.remove('open'); }
+function switchCrewTab(id) { closeCrewNav(); switchTab(id, null); document.getElementById('crewNavBtn')?.classList.add('on'); }
+
+document.addEventListener('click', () => { closeListNav(); closeSchedNav(); closeCrewNav(); });
 
 function openPageInsertModal() {
   const modal = document.getElementById('pageInsertModal');
@@ -5737,7 +6210,11 @@ function removePropFromList(name, category) {
   const stillExists = Object.values(sceneExtras).some(extra =>
     (extra[field] || []).some(i => getItemText(i) === name)
   );
-  if (!stillExists) propList = propList.filter(p => !(p.name === name && p.category === category));
+  if (!stillExists) {
+    propList = propList.filter(p => !(p.name === name && p.category === category));
+    // 다른 계정 _mergeList 2단계에서 로컬 항목을 복원하지 않도록 삭제 로그에 기록
+    _deletionLog.addProp(name, category);
+  }
 }
 
 // 공간소품의 장소명을 씬의 장소로 자동 업데이트
@@ -5806,7 +6283,11 @@ function removeCostumeFromList(name, category) {
   const stillExists = Object.values(sceneExtras).some(extra =>
     (extra[field] || []).some(i => getItemText(i) === name)
   );
-  if (!stillExists) costumeList = costumeList.filter(c => !(c.name === name && c.category === category));
+  if (!stillExists) {
+    costumeList = costumeList.filter(c => !(c.name === name && c.category === category));
+    // 다른 계정 _mergeList 2단계에서 로컬 항목을 복원하지 않도록 삭제 로그에 기록
+    _deletionLog.addCostume(name, category);
+  }
 }
 
 function syncAllCostumesFromBreakdown() {
@@ -6009,21 +6490,24 @@ function deleteProp(id) {
   const type  = FIELD_TO_TYPE[field]; // 'charProp' | 'setProp'
 
   // sceneExtras에서 해당 소품 항목 제거 + 에디터 span 언래핑
+  _deletionLog.addElemGlobal(field, prop.name); // 모든 씬에서 Firestore merge 복원 방지
   for (const [snumKey, extra] of Object.entries(sceneExtras)) {
     if (!extra[field]) continue;
     const idx = extra[field].findIndex(i => getItemText(i) === prop.name);
     if (idx < 0) continue;
     extra[field].splice(idx, 1);
+    _deletionLog.addElem(snumKey, field, prop.name); // 씬 단위 merge 복원 방지
     removeFromListField(snumKey, ITEMS_TO_LIST[field], prop.name);
     removeElemSpanFromEditor(snumKey, type, prop.name);
   }
+  _deletionLog.addProp(prop.name, prop.category); // propList merge 시 복원 방지
 
   propList = propList.filter(p => p.id !== id);
   save();
   renderPropList();
   renderSidebar();
-  if (document.getElementById('tab-scenebd')?.classList.contains('on'))   renderSceneBd();
-  if (document.getElementById('tab-breakdown')?.classList.contains('on')) renderBreakdown();
+  renderSceneBd();
+  renderBreakdown();
   if (document.getElementById('tab-loclist')?.classList.contains('on'))   renderLocList();
 }
 
@@ -6050,7 +6534,27 @@ function moveProp(id, dir) {
 function updatePropField(id, field, value) {
   const prop = propList.find(p => p.id === id);
   if (!prop) return;
+  const oldName = prop.name;
   prop[field] = value;
+  // 이름이 바뀌면 sceneExtras 안의 항목명도 동기화
+  if (field === 'name' && value && value !== oldName) {
+    const itemField = prop.category === 'charProp' ? 'charPropItems' : 'setPropItems';
+    for (const extra of Object.values(sceneExtras)) {
+      if (!extra[itemField]) continue;
+      extra[itemField].forEach(item => {
+        if (typeof item === 'object' && getItemText(item) === oldName) item.text = value;
+        // (string 형태는 splice-and-replace 필요)
+      });
+      // string 형태 항목 교체
+      extra[itemField] = extra[itemField].map(item =>
+        (typeof item === 'string' && item === oldName) ? value : item
+      );
+      // 텍스트 요약 필드 재계산
+      extra[ITEMS_TO_LIST[itemField]] = extra[itemField].map(getItemText).filter(Boolean).join(', ');
+    }
+    renderSceneBd();
+    renderBreakdown();
+  }
   save();
 }
 
@@ -6068,11 +6572,12 @@ function removePropSceneLink(id, snum) {
     const idx = sceneExtras[snum][field].findIndex(i => getItemText(i) === p.name);
     if (idx >= 0) sceneExtras[snum][field].splice(idx, 1);
   }
+  _deletionLog.addElem(snum, field, p.name); // Firestore merge 시 복원 방지
   removeFromListField(snum, ITEMS_TO_LIST[field], p.name);
   removeElemSpanFromEditor(snum, type, p.name);
   save(); renderPropList(); renderSidebar();
-  if (document.getElementById('tab-breakdown')?.classList.contains('on')) renderBreakdown();
-  if (document.getElementById('tab-scenebd')?.classList.contains('on'))   renderSceneBd();
+  renderBreakdown();
+  renderSceneBd();
 }
 
 // ── 씬 선택 팝업 (소품·의상분장 공용) ──────────────────────
@@ -6156,15 +6661,19 @@ function confirmScenePicker() {
     if (!sceneExtras[snum]?.[field]) return;
     const idx = sceneExtras[snum][field].findIndex(i => getItemText(i) === name);
     if (idx >= 0) sceneExtras[snum][field].splice(idx, 1);
+    _deletionLog.addElem(snum, field, name); // Firestore merge 시 복원 방지
     removeFromListField(snum, listField, name);
+    // 에디터 하이라이트도 제거
+    const removeType = FIELD_TO_TYPE[field];
+    if (removeType) removeElemSpanFromEditor(snum, removeType, name);
   });
 
   if (toAdd.length || toRemove.length) {
     save();
     renderFn();
     renderSidebar();
-    if (document.getElementById('tab-breakdown')?.classList.contains('on')) renderBreakdown();
-    if (document.getElementById('tab-scenebd')?.classList.contains('on'))   renderSceneBd();
+    renderBreakdown();
+    renderSceneBd();
   }
   closeScenePicker();
 }
@@ -6389,15 +6898,54 @@ function addCostume(category) {
 }
 
 function deleteCostume(id) {
+  const c = costumeList.find(c => c.id === id);
+  if (!c) return;
+
+  const field = c.category === 'costume' ? 'costumeItems' : 'makeupItems';
+  const type  = FIELD_TO_TYPE[field]; // 'costume' | 'makeup'
+
+  // sceneExtras에서 항목 제거 + 에디터 span 언래핑 (deleteProp와 동일 패턴)
+  _deletionLog.addElemGlobal(field, c.name); // 모든 씬에서 Firestore merge 복원 방지
+  for (const [snumKey, extra] of Object.entries(sceneExtras)) {
+    if (!extra[field]) continue;
+    const idx = extra[field].findIndex(i => getItemText(i) === c.name);
+    if (idx < 0) continue;
+    extra[field].splice(idx, 1);
+    _deletionLog.addElem(snumKey, field, c.name); // 씬 단위 merge 복원 방지
+    removeFromListField(snumKey, ITEMS_TO_LIST[field], c.name);
+    removeElemSpanFromEditor(snumKey, type, c.name);
+  }
+  _deletionLog.addCostume(c.name, c.category); // costumeList merge 시 복원 방지
+
   costumeList = costumeList.filter(c => c.id !== id);
   save();
   renderCostumeList();
+  renderSidebar();
+  renderSceneBd();
+  renderBreakdown();
 }
 
 function updateCostumeField(id, field, value) {
   const cos = costumeList.find(c => c.id === id);
   if (!cos) return;
+  const oldName = cos.name;
   cos[field] = value;
+  // 이름이 바뀌면 sceneExtras 안의 항목명도 동기화
+  if (field === 'name' && value && value !== oldName) {
+    const itemField = cos.category === 'costume' ? 'costumeItems' : 'makeupItems';
+    for (const extra of Object.values(sceneExtras)) {
+      if (!extra[itemField]) continue;
+      extra[itemField].forEach(item => {
+        if (typeof item === 'object' && getItemText(item) === oldName) item.text = value;
+      });
+      extra[itemField] = extra[itemField].map(item =>
+        (typeof item === 'string' && item === oldName) ? value : item
+      );
+      extra[ITEMS_TO_LIST[itemField]] = extra[itemField].map(getItemText).filter(Boolean).join(', ');
+    }
+    renderSceneBd();
+    renderBreakdown();
+  }
   save();
 }
 
@@ -6415,11 +6963,12 @@ function removeCostumeSceneLink(id, snum) {
     const idx = sceneExtras[snum][field].findIndex(i => getItemText(i) === c.name);
     if (idx >= 0) sceneExtras[snum][field].splice(idx, 1);
   }
+  _deletionLog.addElem(snum, field, c.name); // Firestore merge 시 복원 방지
   removeFromListField(snum, ITEMS_TO_LIST[field], c.name);
   removeElemSpanFromEditor(snum, type, c.name);
   save(); renderCostumeList(); renderSidebar();
-  if (document.getElementById('tab-breakdown')?.classList.contains('on')) renderBreakdown();
-  if (document.getElementById('tab-scenebd')?.classList.contains('on'))   renderSceneBd();
+  renderBreakdown();
+  renderSceneBd();
 }
 
 // 의상/분장 드래그앤드롭
@@ -6763,6 +7312,121 @@ function removeLocProp(loc, idx) {
 }
 
 // ══════════════════════════════════════════════════
+// 제작진 — 스태프 리스트
+// ══════════════════════════════════════════════════
+let _staffDragSrcIdx = null;
+
+function renderStaffList() {
+  const wrap = document.getElementById('stafflistWrap');
+  if (!wrap) return;
+  const esc2 = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  if (!staffList.length) {
+    wrap.innerHTML = `<div class="empty" style="padding:40px 0"><div class="empty-icon">👥</div><div>스태프가 없습니다</div></div>`;
+    return;
+  }
+  const rows = staffList.map((s, i) => `
+    <tr class="crew-row" data-idx="${i}" draggable="true"
+      ondragstart="staffDragStart(event,${i})" ondragover="staffDragOver(event,${i})"
+      ondragleave="staffDragLeave(event,${i})" ondrop="staffDrop(event,${i})"
+      ondragend="staffDragEnd(event)">
+      <td class="crew-td crew-td-drag"><span class="crew-drag-handle">⠿</span></td>
+      <td class="crew-td"><input class="crew-inp" value="${esc2(s.dept)}" placeholder="부서" onchange="updateStaff(${i},'dept',this.value)"></td>
+      <td class="crew-td"><input class="crew-inp" value="${esc2(s.role)}" placeholder="역할" onchange="updateStaff(${i},'role',this.value)"></td>
+      <td class="crew-td crew-td-name"><input class="crew-inp" value="${esc2(s.name)}" placeholder="이름" onchange="updateStaff(${i},'name',this.value)"></td>
+      <td class="crew-td crew-td-phone"><input class="crew-inp" value="${esc2(s.phone)}" placeholder="연락처" onchange="updateStaff(${i},'phone',this.value)"></td>
+      <td class="crew-td"><input class="crew-inp" value="${esc2(s.note)}" placeholder="메모" onchange="updateStaff(${i},'note',this.value)"></td>
+      <td class="crew-td crew-td-del"><button class="crew-del-btn" onclick="deleteStaff(${i})" title="삭제">✕</button></td>
+    </tr>`).join('');
+  wrap.innerHTML = `<table class="crew-table">
+    <thead><tr>
+      <th class="crew-th" style="width:32px"></th>
+      <th class="crew-th">부서</th><th class="crew-th">역할</th>
+      <th class="crew-th">이름</th><th class="crew-th">연락처</th>
+      <th class="crew-th">메모</th><th class="crew-th" style="width:32px"></th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+function addStaffRow() {
+  staffList.push({ id: _crewId(), dept: '', role: '', name: '', phone: '', note: '' });
+  save(); renderStaffList();
+  setTimeout(() => {
+    const rows = document.querySelectorAll('#stafflistWrap .crew-row');
+    rows[rows.length-1]?.querySelector('.crew-inp')?.focus();
+  }, 50);
+}
+function deleteStaff(idx) { staffList.splice(idx, 1); save(); renderStaffList(); }
+function updateStaff(idx, field, val) { if (staffList[idx]) { staffList[idx][field] = val; save(); } }
+function staffDragStart(e, idx) { _staffDragSrcIdx = idx; e.dataTransfer.effectAllowed = 'move'; e.currentTarget.classList.add('drag-moving'); }
+function staffDragOver(e, idx)  { e.preventDefault(); if (_staffDragSrcIdx === null || _staffDragSrcIdx === idx) return; e.currentTarget.classList.add('drag-over'); }
+function staffDragLeave(e)      { e.currentTarget.classList.remove('drag-over'); }
+function staffDragEnd(e)        { e.currentTarget.classList.remove('drag-moving'); document.querySelectorAll('#stafflistWrap .crew-row').forEach(r=>r.classList.remove('drag-over','drag-moving')); _staffDragSrcIdx = null; }
+function staffDrop(e, toIdx) {
+  e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+  if (_staffDragSrcIdx === null || _staffDragSrcIdx === toIdx) return;
+  const [item] = staffList.splice(_staffDragSrcIdx, 1);
+  staffList.splice(toIdx, 0, item);
+  _staffDragSrcIdx = null; save(); renderStaffList();
+}
+
+// ══════════════════════════════════════════════════
+// 제작진 — 배우 리스트
+// ══════════════════════════════════════════════════
+let _actorDragSrcIdx = null;
+
+function renderActorList() {
+  const wrap = document.getElementById('actorlistWrap');
+  if (!wrap) return;
+  const esc2 = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  if (!actorList.length) {
+    wrap.innerHTML = `<div class="empty" style="padding:40px 0"><div class="empty-icon">🎭</div><div>배우가 없습니다<br><span style="font-size:12px;color:var(--text-dim)">+ 행 추가로 등록하세요</span></div></div>`;
+    return;
+  }
+  const rows = actorList.map((a, i) => `
+    <tr class="crew-row" data-idx="${i}" draggable="true"
+      ondragstart="actorDragStart(event,${i})" ondragover="actorDragOver(event,${i})"
+      ondragleave="actorDragLeave(event,${i})" ondrop="actorDrop(event,${i})"
+      ondragend="actorDragEnd(event)">
+      <td class="crew-td crew-td-drag"><span class="crew-drag-handle">⠿</span></td>
+      <td class="crew-td crew-td-name"><input class="crew-inp" value="${esc2(a.character)}" placeholder="배역명" onchange="updateActor(${i},'character',this.value)"></td>
+      <td class="crew-td crew-td-name"><input class="crew-inp" value="${esc2(a.name)}" placeholder="배우 이름" onchange="updateActor(${i},'name',this.value)"></td>
+      <td class="crew-td crew-td-phone"><input class="crew-inp" value="${esc2(a.phone)}" placeholder="연락처" onchange="updateActor(${i},'phone',this.value)"></td>
+      <td class="crew-td"><input class="crew-inp" value="${esc2(a.note)}" placeholder="메모" onchange="updateActor(${i},'note',this.value)"></td>
+      <td class="crew-td crew-td-del"><button class="crew-del-btn" onclick="deleteActor(${i})" title="삭제">✕</button></td>
+    </tr>`).join('');
+  wrap.innerHTML = `<table class="crew-table">
+    <thead><tr>
+      <th class="crew-th" style="width:32px"></th>
+      <th class="crew-th">배역</th><th class="crew-th">배우명</th>
+      <th class="crew-th">연락처</th><th class="crew-th">메모</th>
+      <th class="crew-th" style="width:32px"></th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+function addActorRow() {
+  actorList.push({ id: _crewId(), character: '', name: '', phone: '', note: '' });
+  save(); renderActorList();
+  setTimeout(() => {
+    const rows = document.querySelectorAll('#actorlistWrap .crew-row');
+    rows[rows.length-1]?.querySelector('.crew-inp')?.focus();
+  }, 50);
+}
+function deleteActor(idx) { actorList.splice(idx, 1); save(); renderActorList(); }
+function updateActor(idx, field, val) { if (actorList[idx]) { actorList[idx][field] = val; save(); } }
+function actorDragStart(e, idx) { _actorDragSrcIdx = idx; e.dataTransfer.effectAllowed = 'move'; e.currentTarget.classList.add('drag-moving'); }
+function actorDragOver(e, idx)  { e.preventDefault(); if (_actorDragSrcIdx === null || _actorDragSrcIdx === idx) return; e.currentTarget.classList.add('drag-over'); }
+function actorDragLeave(e)      { e.currentTarget.classList.remove('drag-over'); }
+function actorDragEnd(e)        { e.currentTarget.classList.remove('drag-moving'); document.querySelectorAll('#actorlistWrap .crew-row').forEach(r=>r.classList.remove('drag-over','drag-moving')); _actorDragSrcIdx = null; }
+function actorDrop(e, toIdx) {
+  e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+  if (_actorDragSrcIdx === null || _actorDragSrcIdx === toIdx) return;
+  const [item] = actorList.splice(_actorDragSrcIdx, 1);
+  actorList.splice(toIdx, 0, item);
+  _actorDragSrcIdx = null; save(); renderActorList();
+}
+
+// ══════════════════════════════════════════════════
 // PDF 출력
 // ══════════════════════════════════════════════════
 function printScript() {
@@ -7064,13 +7728,16 @@ async function doSave() {
     sceneNotes, sceneExtras, csLabels, globalChars, charOrder, hiddenChars,
     callSheets,  lastCSNum: csGet()?.csNum ?? null,
     locationInfo, locationOrder, propList, costumeList,
+    staffList, actorList,
     pageNumberStyle,
     month:       calMonth.getTime(),
     savedAt:     new Date().toISOString(),
+    _deletions:  _deletionLog.toFirestore(), // 다른 계정이 삭제 로그를 수신해 복원 방지
   };
 
   try {
     await fsStoreSave(_currentFileName || '새 프로젝트', data);
+    rememberCurrentProject(_currentFileName || data.project || '새 프로젝트', _currentProjectId);
   } catch(e) {
     showToast('저장 실패: ' + e.message);
     console.error('Firestore 저장 오류:', e);
@@ -7093,6 +7760,24 @@ function addRecentProject(name, projectId = null) {
   list.unshift({ name, projectId, openedAt: new Date().toISOString() });
   localStorage.setItem(_recentKey(), JSON.stringify(list.slice(0, 15)));
 }
+function _currentProjectMemoryKey() {
+  const u = auth.currentUser;
+  return u ? `dpre-current-project-${u.uid}` : 'dpre-current-project';
+}
+function rememberCurrentProject(name, projectId) {
+  if (!auth.currentUser || !projectId) return;
+  localStorage.setItem(_currentProjectMemoryKey(), JSON.stringify({
+    name: name || '프로젝트',
+    projectId,
+    openedAt: new Date().toISOString()
+  }));
+}
+function getCurrentProjectMemory() {
+  try { return JSON.parse(localStorage.getItem(_currentProjectMemoryKey()) || 'null'); } catch { return null; }
+}
+function clearCurrentProjectMemory() {
+  localStorage.removeItem(_currentProjectMemoryKey());
+}
 function removeRecentProject(idx) {
   const list = getRecentProjects();
   list.splice(idx, 1);
@@ -7100,6 +7785,35 @@ function removeRecentProject(idx) {
   renderRecentProjects();
 }
 let _recentExpanded = false;
+
+async function openProjectById(projectId, fallbackName = '프로젝트') {
+  const proj = await fsStoreGetProject(projectId);
+  const name = proj.name || fallbackName || '프로젝트';
+  _myRole = _getMyRole(proj);
+  updateSidebarRoleBadge();
+  _currentProjectId = projectId;
+  _currentFileName  = name;
+  document.getElementById('projectsOverlay')?.classList.add('hidden');
+  switchTab('editor', document.querySelector('.nav-btn'));
+  await applyLoadedData(proj.data || {});
+  addRecentProject(name, projectId);
+  rememberCurrentProject(name, projectId);
+  _syncProfileToProject(projectId);
+  return true;
+}
+
+async function restoreCurrentProjectOnBoot() {
+  const saved = getCurrentProjectMemory() || getRecentProjects().find(p => p?.projectId);
+  if (!saved?.projectId) return false;
+  try {
+    await openProjectById(saved.projectId, saved.name);
+    return true;
+  } catch(e) {
+    clearCurrentProjectMemory();
+    console.warn('최근 프로젝트 자동 복원 실패:', e);
+    return false;
+  }
+}
 
 function renderRecentProjects() {
   const el = document.getElementById('recentProjectsList');
@@ -7146,17 +7860,8 @@ async function openRecentProject(idx) {
   const resetEl = () => { if (itemEl) { itemEl.style.opacity = ''; itemEl.style.pointerEvents = ''; } };
   showToast('불러오는 중...');
   try {
-    const proj = await fsStoreGetProject(p.projectId);
-    _myRole = _getMyRole(proj);
-    updateSidebarRoleBadge();
-    _currentProjectId = p.projectId;
-    _currentFileName  = p.name;
-    document.getElementById('projectsOverlay')?.classList.add('hidden');
-    switchTab('editor', document.querySelector('.nav-btn'));
-    await applyLoadedData(proj.data || {});
+    await openProjectById(p.projectId, p.name);
     resetEl();
-
-    _syncProfileToProject(p.projectId);
   } catch(e) {
     resetEl();
     showToast('불러오기 실패: ' + e.message);
@@ -7249,6 +7954,7 @@ function switchProjectsHomeTab(tab) {
 }
 
 async function showProjectsOverlay() {
+  if (document.body?.classList.contains('app-booting')) return;
   presenceLeave().catch(() => {});
 
   const overlay = document.getElementById('projectsOverlay');
@@ -7330,6 +8036,7 @@ async function confirmNewProject() {
   sceneNotes = {}; sceneExtras = {}; globalChars = [];
   charOrder = []; hiddenChars = []; locationInfo = {};
   locationOrder = []; propList = []; costumeList = [];
+  staffList = _defaultStaff(); actorList = [];
   callSheets = []; currentCSIdx = 0;
   renderLeftSidebar();
   _dataLoaded = true;
@@ -7337,11 +8044,13 @@ async function confirmNewProject() {
 
   await doSave();
   addRecentProject(name, _currentProjectId);
+  rememberCurrentProject(name, _currentProjectId);
 }
 
 // load()에서 Drive 데이터 적용 시 공통 함수
 async function applyLoadedData(d) {
   _suppressSave = true;
+  _deletionLog.clear(); // 새 프로젝트 로드 시 삭제 로그 초기화
   if (d.sched)         sched              = d.sched;
   if (d.schedDays)     schedDays          = d.schedDays;
   if (d.charNotes)     charNotes          = d.charNotes;
@@ -7359,6 +8068,8 @@ async function applyLoadedData(d) {
   if (d.locationOrder) locationOrder      = d.locationOrder;
   propList      = ensureArray(d.propList);
   costumeList   = ensureArray(d.costumeList);
+  staffList     = d.staffList !== undefined ? ensureArray(d.staffList) : _defaultStaff();
+  actorList     = ensureArray(d.actorList);
   pageNumberStyle = d.pageNumberStyle || null;
   if (d.month)         calMonth           = new Date(d.month);
 
@@ -7524,6 +8235,20 @@ async function presenceJoin() {
   function _mergeSceneExtras(local, remote) {
     const ITEM_FIELDS = ['costumeItems','makeupItems','charPropItems','setPropItems','vfxItems','etcItems','locationItems'];
     const result = JSON.parse(JSON.stringify(remote || {}));
+
+    // 삭제 여부 판정 헬퍼 (씬 단위 OR 전체 글로벌)
+    const isDeleted = (snum, field, text) =>
+      _deletionLog.hasElem(snum, field, text) || _deletionLog.hasElemGlobal(field, text);
+
+    // 1단계: 원격 데이터에서 최근 삭제된 항목 제거 (Firestore에 아직 반영 안 된 경우)
+    for (const [snum, extra] of Object.entries(result)) {
+      for (const field of ITEM_FIELDS) {
+        if (!extra[field]?.length) continue;
+        extra[field] = extra[field].filter(i => !isDeleted(snum, field, getItemText(i)));
+      }
+    }
+
+    // 2단계: 로컬에만 있는 항목 보존 (단, 삭제 로그에 있는 항목은 제외)
     for (const [snum, localExtra] of Object.entries(local || {})) {
       if (!result[snum]) result[snum] = {};
       for (const field of ITEM_FIELDS) {
@@ -7531,6 +8256,7 @@ async function presenceJoin() {
         if (!result[snum][field]) result[snum][field] = [];
         for (const localItem of localExtra[field]) {
           const text = getItemText(localItem);
+          if (isDeleted(snum, field, text)) continue; // 삭제된 항목은 복원 방지
           if (!result[snum][field].some(i => getItemText(i) === text)) {
             result[snum][field].push(localItem); // 로컬에만 있는 항목 보존
           }
@@ -7545,15 +8271,36 @@ async function presenceJoin() {
     return result;
   }
 
-  // propList / costumeList: 서버 기준, 로컬에만 있는 항목 추가
+  // propList / costumeList: 서버 기준, 로컬에만 있는 항목 추가 (단, 삭제 로그 항목 제외)
   function _mergeList(local, remote, keyFields) {
-    const result = JSON.parse(JSON.stringify(remote || []));
+    // 1단계: 원격 데이터에서 최근 삭제된 항목 제거
+    let result = JSON.parse(JSON.stringify(remote || []));
+    result = result.filter(r => {
+      if (keyFields.includes('category')) {
+        // propList or costumeList 구분
+        if (r.category === 'charProp' || r.category === 'setProp') {
+          return !_deletionLog.hasProp(r.name, r.category);
+        } else if (r.category === 'costume' || r.category === 'makeup') {
+          return !_deletionLog.hasCostume(r.name, r.category);
+        }
+      }
+      return true;
+    });
+    // 2단계: 로컬에만 있는 항목 추가 (삭제 로그 항목 제외)
     for (const localItem of (local || [])) {
+      if (keyFields.includes('category')) {
+        if (localItem.category === 'charProp' || localItem.category === 'setProp') {
+          if (_deletionLog.hasProp(localItem.name, localItem.category)) continue;
+        } else if (localItem.category === 'costume' || localItem.category === 'makeup') {
+          if (_deletionLog.hasCostume(localItem.name, localItem.category)) continue;
+        }
+      }
       const already = result.some(r => keyFields.every(k => r[k] === localItem[k]));
       if (!already) result.push(JSON.parse(JSON.stringify(localItem)));
     }
     return result;
   }
+
   _projectDataListener = db.collection('projects').doc(_currentProjectId)
     .onSnapshot(snap => {
       if (!snap.exists) return;
@@ -7562,11 +8309,16 @@ async function presenceJoin() {
       // (merge 방식이므로 로컬 항목은 항상 보존됨)
       if (d.updatedBy === auth.currentUser?.uid) return;
       const rd = d.data || {};
+      // 다른 계정의 삭제 로그를 먼저 내 로컬 로그에 병합 (삭제 동기화 핵심)
+      // — 이 작업이 선행돼야 아래 _mergeSceneExtras에서 올바르게 필터링됨
+      if (rd._deletions) _deletionLog.mergeFromFirestore(rd._deletions);
       // 스크립트 텍스트(html)는 Yjs가 처리하므로 제외하고 메타 데이터만 동기화
       // sceneExtras의 요소 등록 배열은 MERGE (덮어쓰지 않음 — 로컬 등록 항목 보존)
       sceneExtras        = _mergeSceneExtras(sceneExtras, rd.sceneExtras);
       propList           = _mergeList(propList,     ensureArray(rd.propList),     ['name','category']);
       costumeList        = _mergeList(costumeList,  ensureArray(rd.costumeList),  ['name','category']);
+      if (rd.staffList !== undefined) staffList = ensureArray(rd.staffList);
+      if (rd.actorList !== undefined) actorList = ensureArray(rd.actorList);
       charNotes          = rd.charNotes          || {};
       charInfo           = rd.charInfo           || {};
       manualCharsByScene = rd.manualCharsByScene  || {};
@@ -7596,15 +8348,18 @@ async function presenceJoin() {
         if (labelEl && !labelEl.isContentEditable) labelEl.textContent = d.name;
       }
       // 현재 열려 있는 탭 리렌더링
+      // 씬브레이크다운·브레이크다운·리스트는 삭제 동기화 반영을 위해 항상 재렌더
       renderSidebar();
       renderLeftSidebar();
+      renderSceneBd();
+      renderBreakdown();
       const onTab = id => document.getElementById(id)?.classList.contains('on');
-      if (onTab('tab-scenebd'))     renderSceneBd();
-      if (onTab('tab-breakdown'))   renderBreakdown();
       if (onTab('tab-chars'))       renderChars();
       if (onTab('tab-loclist'))     renderLocList();
       if (onTab('tab-proplist'))    renderPropList();
       if (onTab('tab-costumelist')) renderCostumeList();
+      if (onTab('tab-stafflist'))   renderStaffList();
+      if (onTab('tab-actorlist'))   renderActorList();
       if (onTab('tab-schedule'))    renderSchedule();
       if (onTab('tab-callsheet'))   renderCS();
     }, () => {});
@@ -8091,6 +8846,7 @@ function dismissLanding() {
   if (!overlay) return;
 
   // 1) 목표 화면을 먼저 보여줌 (랜딩이 위에서 덮고 있으므로 즉시 표시해도 안 보임)
+  finishInitialOverlayGate();
   if (auth?.currentUser) {
     showProjectsOverlay();
   } else {
@@ -8117,6 +8873,14 @@ function showLanding() {
   // 항상 index.html에 있는 기존 overlay를 재사용
   const overlay = document.getElementById('landingOverlay');
   if (!overlay) return;
+  _bootGateDone = false; // boot gate 재활성화 (dismissLanding에서 다시 해제)
+  document.body?.classList.add('app-booting');
+  if (!document.getElementById('bootOverlayGate')) {
+    const style = document.createElement('style');
+    style.id = 'bootOverlayGate';
+    style.textContent = 'body.app-booting #projectsOverlay{display:none!important;visibility:hidden!important;pointer-events:none!important}';
+    document.head.appendChild(style);
+  }
   document.getElementById('loginOverlay')?.classList.add('hidden');
   document.getElementById('projectsOverlay')?.classList.add('hidden');
   _setupLandingOverlay(overlay);
