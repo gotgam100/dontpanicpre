@@ -2521,7 +2521,7 @@ function frReplaceAll() {
 
 // 도움말 화면
 // ══════════════════════════════════════════════════
-const GUIDE_URL = 'https://gotgam100.github.io/dontpanicpre/docs/guide.html';
+const GUIDE_URL = 'https://gotgam100.github.io/dontpanicpre/guide.html';
 
 function showHelp() {
   window.open(GUIDE_URL, '_blank', 'noopener,noreferrer');
