@@ -54,18 +54,6 @@
       font-size: 15px;
       color: var(--text-muted);
     }
-    .header-btn {
-      margin-left: auto;
-      padding: 8px 20px;
-      border-radius: 8px;
-      background: var(--accent);
-      color: #fff;
-      font-size: 15px;
-      font-weight: 700;
-      text-decoration: none;
-      transition: opacity .15s;
-    }
-    .header-btn:hover { opacity: .85; }
 
     /* 레이아웃 */
     .layout {
@@ -75,7 +63,6 @@
       display: grid;
       grid-template-columns: 230px 1fr;
       gap: 40px;
-      align-items: start;
     }
     @media (max-width: 680px) {
       .layout { grid-template-columns: 1fr; }
@@ -86,6 +73,7 @@
     .toc {
       position: sticky;
       top: 80px;
+      align-self: start;
     }
     .toc-title {
       font-size: 14px;
@@ -241,7 +229,6 @@
   <div class="header-inner">
     <div class="header-logo">Don't Panic Pre</div>
     <div class="header-sub">사용 가이드</div>
-    <a class="header-btn" href="https://dontpanicpre.web.app" target="_blank">앱 열기 →</a>
   </div>
 </header>
 
