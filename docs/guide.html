@@ -245,6 +245,11 @@
       transition: color .12s;
     }
     .footer-link:hover { color: var(--text); }
+    .footer-link-current {
+      color: var(--accent);
+      font-weight: 600;
+      cursor: default;
+    }
     .footer-copy {
       font-size: 13px;
       color: var(--text-dim);
@@ -477,7 +482,7 @@
     <div class="footer-col">
       <div class="footer-col-title">제품</div>
       <a class="footer-link" href="#">릴리스 노트</a>
-      <a class="footer-link" href="guide.html">사용 가이드</a>
+      <span class="footer-link footer-link-current">사용 가이드</span>
     </div>
     <div class="footer-col">
       <div class="footer-col-title">정책</div>
