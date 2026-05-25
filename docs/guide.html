@@ -214,13 +214,41 @@
     /* 푸터 */
     footer {
       border-top: 1px solid var(--border);
-      padding: 28px;
+      padding: 56px 28px 40px;
       text-align: center;
-      color: var(--text-dim);
-      font-size: 14px;
     }
-    footer a { color: var(--text-muted); text-decoration: none; }
-    footer a:hover { color: var(--text); }
+    .footer-cols {
+      display: flex;
+      justify-content: center;
+      gap: 80px;
+      margin-bottom: 40px;
+      flex-wrap: wrap;
+    }
+    .footer-col-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      margin-bottom: 14px;
+    }
+    .footer-col {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      align-items: center;
+    }
+    .footer-link {
+      font-size: 15px;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color .12s;
+    }
+    .footer-link:hover { color: var(--text); }
+    .footer-copy {
+      font-size: 13px;
+      color: var(--text-dim);
+    }
   </style>
 </head>
 <body>
@@ -445,8 +473,25 @@
 </div>
 
 <footer>
-  <p>Don't Panic Pre &nbsp;·&nbsp; <a href="https://dontpanicpre.web.app" target="_blank">앱 바로가기</a> &nbsp;·&nbsp; <a href="privacy.html">개인정보 처리방침</a> &nbsp;·&nbsp; <a href="terms.html">이용약관</a></p>
-  <p style="margin-top:6px">내용은 지속적으로 업데이트됩니다.</p>
+  <div class="footer-cols">
+    <div class="footer-col">
+      <div class="footer-col-title">제품</div>
+      <a class="footer-link" href="#">릴리스 노트</a>
+      <a class="footer-link" href="guide.html">사용 가이드</a>
+    </div>
+    <div class="footer-col">
+      <div class="footer-col-title">정책</div>
+      <a class="footer-link" href="privacy.html">개인정보 처리방침</a>
+      <a class="footer-link" href="terms.html">이용약관</a>
+      <a class="footer-link" href="security.html">보안</a>
+    </div>
+    <div class="footer-col">
+      <div class="footer-col-title">연락망</div>
+      <a class="footer-link" href="mailto:yogotgam@gmail.com">이메일</a>
+      <a class="footer-link" href="#">개발일지</a>
+    </div>
+  </div>
+  <p class="footer-copy">© 2026 Don't Panic Pre · All rights reserved.</p>
 </footer>
 
 <script>
