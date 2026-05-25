@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Don't Panic Pre — 사용 가이드</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #181c24;
+      --surface2: #1e2330;
+      --border: rgba(255,255,255,.08);
+      --border2: rgba(255,255,255,.13);
+      --text: #e8eaf0;
+      --text-muted: #8b92a9;
+      --text-dim: #5a6075;
+      --accent: #7c8cf8;
+      --accent-glow: rgba(124,140,248,.12);
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.75;
+    }
+
+    /* 헤더 */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border2);
+      padding: 20px 0;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header-inner {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .header-logo {
+      font-size: 20px;
+      font-weight: 900;
+      letter-spacing: -.5px;
+      color: var(--accent);
+    }
+    .header-sub {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .header-btn {
+      margin-left: auto;
+      padding: 7px 18px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: opacity .15s;
+    }
+    .header-btn:hover { opacity: .85; }
+
+    /* 레이아웃 */
+    .layout {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 48px 28px 80px;
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 40px;
+      align-items: start;
+    }
+    @media (max-width: 680px) {
+      .layout { grid-template-columns: 1fr; }
+      .toc { display: none; }
+    }
+
+    /* 목차 */
+    .toc {
+      position: sticky;
+      top: 80px;
+    }
+    .toc-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-dim);
+      letter-spacing: .7px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .toc-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .toc-list a {
+      display: block;
+      padding: 5px 10px;
+      border-radius: 6px;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      transition: all .12s;
+    }
+    .toc-list a:hover {
+      color: var(--text);
+      background: var(--surface2);
+    }
+    .toc-list a.active {
+      color: var(--accent);
+      background: var(--accent-glow);
+    }
+
+    /* 본문 */
+    .content {
+      display: flex;
+      flex-direction: column;
+      gap: 56px;
+    }
+
+    /* 섹션 */
+    .section { scroll-margin-top: 100px; }
+    .section-badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent);
+      background: var(--accent-glow);
+      border: 1px solid rgba(124,140,248,.2);
+      border-radius: 20px;
+      padding: 3px 11px;
+      letter-spacing: .4px;
+      margin-bottom: 10px;
+    }
+    .section-title {
+      font-size: 22px;
+      font-weight: 900;
+      letter-spacing: -.4px;
+      color: var(--text);
+      margin-bottom: 16px;
+    }
+    .section-body {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      color: var(--text-muted);
+    }
+    .section-body p { color: var(--text-muted); }
+    .section-body strong { color: var(--text); font-weight: 700; }
+
+    /* 카드 */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+      margin-top: 6px;
+    }
+    .card {
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+    .card-icon { font-size: 20px; margin-bottom: 7px; }
+    .card-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+    .card-desc { font-size: 12px; color: var(--text-muted); line-height: 1.55; }
+
+    /* 스텝 */
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 6px;
+    }
+    .step {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+    }
+    .step-num {
+      flex-shrink: 0;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--accent-glow);
+      border: 1px solid rgba(124,140,248,.3);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 1px;
+    }
+    .step-text { font-size: 14px; color: var(--text-muted); }
+    .step-text strong { color: var(--text); }
+
+    /* 태그 리스트 */
+    .tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 6px;
+    }
+    .tag {
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .tag strong { color: var(--text); }
+
+    /* 구분선 */
+    hr { border: none; border-top: 1px solid var(--border); }
+
+    /* 푸터 */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 28px;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+    footer a { color: var(--text-muted); text-decoration: none; }
+    footer a:hover { color: var(--text); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="header-logo">Don't Panic Pre</div>
+    <div class="header-sub">사용 가이드</div>
+    <a class="header-btn" href="https://dontpanicpre.web.app" target="_blank">앱 열기 →</a>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- 목차 -->
+  <nav class="toc">
+    <div class="toc-title">목차</div>
+    <ul class="toc-list">
+      <li><a href="#login">01 · 로그인</a></li>
+      <li><a href="#home">02 · 홈 화면</a></li>
+      <li><a href="#sidebar">03 · 사이드바</a></li>
+      <li><a href="#script">04 · 스크립트 & 씬브레이크다운</a></li>
+      <li><a href="#tabs">05 · 리스트 · 인물설정 · 스케줄 · 제작진</a></li>
+      <li><a href="#chat">06 · 채팅</a></li>
+    </ul>
+  </nav>
+
+  <!-- 본문 -->
+  <main class="content">
+
+    <!-- 01 로그인 -->
+    <section class="section" id="login">
+      <div class="section-badge">01</div>
+      <h2 class="section-title">로그인 방법</h2>
+      <div class="section-body">
+        <p>Don't Panic Pre는 <strong>Google 계정</strong>으로 로그인합니다. 별도 회원가입 없이 Google 계정만 있으면 바로 사용할 수 있습니다.</p>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text"><a href="https://dontpanicpre.web.app" style="color:var(--accent)">dontpanicpre.web.app</a>에 접속하면 로그인 화면이 나타납니다.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text"><strong>Google로 계속하기</strong> 버튼을 클릭해 Google 계정으로 인증합니다.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text">로그인이 완료되면 <strong>홈 화면(프로젝트 선택 화면)</strong>으로 이동합니다.</div>
+          </div>
+        </div>
+        <p>같은 Google 계정으로 여러 기기에서 동시에 접속할 수 있으며, 데이터는 실시간으로 동기화됩니다.</p>
+      </div>
+    </section>
+
+    <!-- 02 홈 화면 -->
+    <section class="section" id="home">
+      <div class="section-badge">02</div>
+      <h2 class="section-title">홈 화면 · 프로젝트 관리</h2>
+      <div class="section-body">
+        <p>로그인 후 표시되는 화면에서 프로젝트를 생성하거나 불러옵니다.</p>
+        <div class="card-grid">
+          <div class="card">
+            <div class="card-icon">✨</div>
+            <div class="card-title">새 프로젝트</div>
+            <div class="card-desc">프로젝트 이름을 입력하고 생성하면 빈 스크립트가 열립니다.</div>
+          </div>
+          <div class="card">
+            <div class="card-icon">📂</div>
+            <div class="card-title">프로젝트 선택</div>
+            <div class="card-desc">이전에 작업한 프로젝트 목록에서 클릭해 바로 열 수 있습니다.</div>
+          </div>
+          <div class="card">
+            <div class="card-icon">📤</div>
+            <div class="card-title">수동 불러오기</div>
+            <div class="card-desc">내보낸 JSON 파일을 드래그하거나 선택해 프로젝트를 복원합니다.</div>
+          </div>
+        </div>
+        <p>프로젝트 데이터는 Google Firebase에 저장되며, <strong>로그아웃 후 재로그인해도 그대로 유지</strong>됩니다.</p>
+      </div>
+    </section>
+
+    <!-- 03 사이드바 -->
+    <section class="section" id="sidebar">
+      <div class="section-badge">03</div>
+      <h2 class="section-title">메인 창 · 사이드바 메뉴</h2>
+      <div class="section-body">
+        <p>메인 화면 왼쪽 사이드바에서 프로젝트의 전체 씬 목록과 주요 기능에 접근할 수 있습니다.</p>
+        <div class="card-grid">
+          <div class="card">
+            <div class="card-icon">🎬</div>
+            <div class="card-title">씬 목록</div>
+            <div class="card-desc">등록된 씬이 순서대로 나열됩니다. 클릭하면 해당 씬으로 스크롤합니다.</div>
+          </div>
+          <div class="card">
+            <div class="card-icon">👤</div>
+            <div class="card-title">인물 목록</div>
+            <div class="card-desc">스크립트에서 감지된 인물 목록을 확인하고, 클릭해 인물설정으로 이동합니다.</div>
+          </div>
+          <div class="card">
+            <div class="card-icon">🔍</div>
+            <div class="card-title">찾기 / 바꾸기</div>
+            <div class="card-desc">스크립트 내 텍스트를 검색하거나 일괄 치환합니다.</div>
+          </div>
+          <div class="card">
+            <div class="card-icon">⚙️</div>
+            <div class="card-title">프로젝트 설정</div>
+            <div class="card-desc">프로젝트 이름, 씬 번호 스타일, 내보내기 등 설정을 관리합니다.</div>
+          </div>
+          <div class="card">
+            <div class="card-icon">💬</div>
+            <div class="card-title">채팅</div>
+            <div class="card-desc">프로젝트에 초대된 팀원들과 실시간 채팅을 할 수 있습니다.</div>
+          </div>
+          <div class="card">
+            <div class="card-icon">📤</div>
+            <div class="card-title">내보내기</div>
+            <div class="card-desc">스크립트나 씬브레이크다운을 PDF·JSON 등으로 내보냅니다.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 스크립트 & 씬브레이크다운 -->
+    <section class="section" id="script">
+      <div class="section-badge">04</div>
+      <h2 class="section-title">스크립트 & 씬브레이크다운</h2>
+      <div class="section-body">
+        <p>메인 탭의 핵심 기능입니다. 스크립트를 직접 입력·편집하고, 씬별 구성요소를 정리할 수 있습니다.</p>
+
+        <strong>스크립트 작성</strong>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">→</div>
+            <div class="step-text">상단 툴바에서 <strong>씬 헤딩 / 지문 / 대사 / 인써트씬</strong> 등 문단 타입을 선택하고 입력합니다.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">→</div>
+            <div class="step-text">씬 헤딩을 입력하면 <strong>자동으로 씬이 생성</strong>되고 사이드바 씬 목록에 표시됩니다.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">→</div>
+            <div class="step-text">텍스트를 드래그 후 우클릭하면 인물·소품·의상 등을 <strong>씬 요소로 등록</strong>할 수 있습니다.</div>
+          </div>
+        </div>
+
+        <strong>씬브레이크다운</strong>
+        <p>상단 탭에서 <strong>[씬브레이크다운]</strong>을 선택하면 각 씬별로 등장인물, 소품(세트·캐릭터), 의상·분장, VFX, 기타 요소를 카드 형태로 관리할 수 있습니다.</p>
+        <div class="tag-list">
+          <div class="tag"><strong>👤</strong> 등장인물</div>
+          <div class="tag"><strong>🧳</strong> 소품</div>
+          <div class="tag"><strong>👗</strong> 의상 · 분장</div>
+          <div class="tag"><strong>✨</strong> VFX</div>
+          <div class="tag"><strong>📝</strong> 씬 메모</div>
+        </div>
+        <p>등록된 요소는 <strong>리스트 탭</strong>에서 항목별로 통합 관리됩니다. 삭제·수정도 리스트와 씬브레이크다운 양쪽에 실시간으로 반영됩니다.</p>
+      </div>
+    </section>
+
+    <!-- 05 리스트·인물설정·스케줄·제작진 -->
+    <section class="section" id="tabs">
+      <div class="section-badge">05</div>
+      <h2 class="section-title">리스트 · 인물설정 · 스케줄 · 제작진</h2>
+      <div class="section-body">
+
+        <strong>리스트</strong>
+        <p>씬브레이크다운에서 등록한 요소들을 한 곳에서 관리합니다. 소품 리스트, 의상·분장 리스트를 항목별로 확인하고, 메모·담당자 등을 추가할 수 있습니다.</p>
+
+        <strong>인물설정</strong>
+        <p>스크립트에서 자동 감지된 인물 목록을 관리합니다. 각 인물마다 아래 내용을 설정할 수 있습니다.</p>
+        <div class="tag-list">
+          <div class="tag">성별 · 나이</div>
+          <div class="tag">인물 색상</div>
+          <div class="tag">캐릭터 설정</div>
+          <div class="tag">등장씬 확인</div>
+          <div class="tag">메모</div>
+        </div>
+
+        <strong>스케줄</strong>
+        <p>촬영 일정을 관리합니다. 날짜별로 씬을 배치하고, 콜시트(Call Sheet)를 생성해 팀원들과 공유할 수 있습니다.</p>
+
+        <strong>제작진</strong>
+        <p>스태프 리스트와 배우 리스트를 관리합니다.</p>
+        <div class="card-grid">
+          <div class="card">
+            <div class="card-icon">🎬</div>
+            <div class="card-title">스태프 리스트</div>
+            <div class="card-desc">부서 · 역할 · 세부역할 · 이름 · 연락처 · 이메일 · 메모를 입력합니다.</div>
+          </div>
+          <div class="card">
+            <div class="card-icon">🎭</div>
+            <div class="card-title">배우 리스트</div>
+            <div class="card-desc">배역명 · 배우명 · 소속사 · 연락처1 · 연락처2 · 메모를 입력합니다.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 채팅 -->
+    <section class="section" id="chat">
+      <div class="section-badge">06</div>
+      <h2 class="section-title">채팅</h2>
+      <div class="section-body">
+        <p>프로젝트에 참여한 팀원들과 <strong>실시간 채팅</strong>을 할 수 있습니다.</p>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">→</div>
+            <div class="step-text">사이드바의 <strong>채팅 버튼</strong>을 클릭해 채팅 패널을 엽니다.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">→</div>
+            <div class="step-text">같은 프로젝트에 접속한 팀원들과 <strong>실시간으로 메시지를 주고받을 수 있습니다.</strong></div>
+          </div>
+          <div class="step">
+            <div class="step-num">→</div>
+            <div class="step-text">메시지는 Firebase에 저장되어 나중에 접속해도 이전 대화를 확인할 수 있습니다.</div>
+          </div>
+        </div>
+        <p>프로젝트 설정에서 팀원을 초대하면 함께 스크립트를 <strong>실시간 공동 편집</strong>하고 채팅할 수 있습니다.</p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  <p>Don't Panic Pre &nbsp;·&nbsp; <a href="https://dontpanicpre.web.app">앱 바로가기</a> &nbsp;·&nbsp; <a href="https://github.com/gotgam100/dontpanicpre" target="_blank">GitHub</a></p>
+  <p style="margin-top:6px">내용은 지속적으로 업데이트됩니다.</p>
+</footer>
+
+<script>
+  // 스크롤 위치에 따른 목차 활성화
+  const sections = document.querySelectorAll('.section');
+  const tocLinks = document.querySelectorAll('.toc-list a');
+
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        tocLinks.forEach(a => a.classList.remove('active'));
+        const active = document.querySelector(`.toc-list a[href="#${entry.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+
+  sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>

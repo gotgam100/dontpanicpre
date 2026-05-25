@@ -873,7 +873,7 @@ let sceneExtras       = {};       // { sceneNum: { costume, charProps, setProps,
 let propList          = [];       // [{ id, name, category, character, location, desc }]
 let propSort          = { charProp: 'default', setProp: 'default' }; // 'default'|'char'|'loc'|'status'
 let costumeList       = [];       // [{ id, name, character, category:'costume'|'makeup', status, desc }]
-let staffList         = [];       // [{ id, dept, role, name, phone, note }]
+let staffList         = [];       // [{ id, dept, role, detailRole, name, phone, email, note }]
 let actorList         = [];       // [{ id, character, name, phone, note }]
 let _ctxSavedSel      = null;     // 우클릭 요소 등록용 저장된 선택 정보
 
@@ -975,24 +975,52 @@ function normalizeListState() {
   costumeList = ensureArray(costumeList);
   staffList   = ensureArray(staffList);
   actorList   = ensureArray(actorList);
+  // 스태프 필드 마이그레이션: 구버전 데이터에 없는 필드 보완
+  staffList.forEach(s => {
+    if (s.detailRole === undefined) s.detailRole = '';
+    if (s.email      === undefined) s.email      = '';
+  });
+  // 배우 필드 마이그레이션
+  actorList.forEach(a => {
+    if (a.agency === undefined) a.agency = '';
+    if (a.phone2  === undefined) a.phone2  = '';
+  });
 }
 
 const DEFAULT_STAFF = [
-  { dept:'감독부',   role:'감독' },      { dept:'감독부',   role:'조감독' },
-  { dept:'감독부',   role:'제2조감독' },  { dept:'감독부',   role:'스크립터' },
-  { dept:'제작부',   role:'PD' },         { dept:'제작부',   role:'기획' },
-  { dept:'제작부',   role:'라인PD' },     { dept:'제작부',   role:'제작주임' },
-  { dept:'촬영부',   role:'촬영감독' },   { dept:'촬영부',   role:'B캠 촬영' },
-  { dept:'촬영부',   role:'포커스풀러' }, { dept:'촬영부',   role:'데이터매니저' },
-  { dept:'조명부',   role:'조명감독' },   { dept:'조명부',   role:'조명주임' },
-  { dept:'동시녹음', role:'녹음기사' },
-  { dept:'미술부',   role:'미술감독' },   { dept:'미술부',   role:'세트장식' },
-  { dept:'의상',     role:'의상감독' },   { dept:'분장',     role:'분장감독' },
-  { dept:'편집',     role:'편집기사' },
+  { dept:'연출부',   role:'연출' },      { dept:'연출부',   role:'조연출' },
+  { dept:'연출부',   role:'연출부 1st' }, { dept:'연출부',   role:'연출부 2nd' },
+  { dept:'연출부',   role:'스크립터' },
+  { dept:'제작부',   role:'프로듀서' },   { dept:'제작부',   role:'제작실장' },
+  { dept:'제작부',   role:'제작부장' },   { dept:'제작부',   role:'제작부 1st' },
+  { dept:'제작부',   role:'제작부 2nd' },
+  { dept:'촬영부',   role:'촬영' },       { dept:'촬영부',   role:'촬영 1st' },
+  { dept:'촬영부',   role:'촬영 2nd' },   { dept:'촬영부',   role:'촬영 3rd' },
+  { dept:'촬영부',   role:'B캠 촬영' },
+  { dept:'조명부',   role:'조명' },       { dept:'조명부',   role:'조명 1st' },
+  { dept:'조명부',   role:'조명 2nd' },   { dept:'조명부',   role:'조명 3rd' },
+  { dept:'동시녹음', role:'녹음' },       { dept:'동시녹음', role:'붐 오퍼레이터' },
+  { dept:'미술',     role:'미술' },       { dept:'미술',     role:'미술팀' },
+  { dept:'세트',     role:'세트' },       { dept:'세트',     role:'세트팀' },
+  { dept:'의상',     role:'의상' },       { dept:'의상',     role:'의상팀' },
+  { dept:'분장',     role:'분장' },       { dept:'분장',     role:'분장팀' },
+  { dept:'편집',     role:'편집' },
+  { dept:'사운드',   role:'믹싱' },
+  { dept:'음악',     role:'음악' },
+  { dept:'VFX',      role:'VFX' },
 ];
 function _crewId() { return 'cr' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 function _defaultStaff() {
-  return DEFAULT_STAFF.map(s => ({ id: _crewId(), dept: s.dept, role: s.role, name: '', phone: '', note: '' }));
+  return DEFAULT_STAFF.map(s => ({
+    id: _crewId(),
+    dept: s.dept,
+    role: s.role,
+    detailRole: '',
+    name: '',
+    phone: '',
+    email: '',
+    note: ''
+  }));
 }
 
 // ── 앱 레벨 Undo 스택 ─────────────────────────────────
@@ -1061,6 +1089,7 @@ let hiddenChars       = [];       // 명시적으로 삭제된 인물 (스크립
 let charDragName      = null;     // 드래그 중인 인물 이름
 let selectedChar      = null;
 let _charScenesOpen   = true;  // 등장씬 섹션 펼침/접기 상태
+let _charDetailTab    = 'setting'; // 'setting' | 'scenes' | 'memo'
 let selectedNums      = new Set();
 let dragging          = null;
 let lastDragY         = 0;
@@ -2285,8 +2314,7 @@ function neverShowWelcome() {
   document.getElementById('welcomeOverlay')?.classList.remove('open');
 }
 function openGuideFromWelcome() {
-  closeWelcome();
-  showHelp();
+  window.open(GUIDE_URL, '_blank', 'noopener,noreferrer');
 }
 
 // ══════════════════════════════════════════════════
@@ -2493,10 +2521,13 @@ function frReplaceAll() {
 
 // 도움말 화면
 // ══════════════════════════════════════════════════
+const GUIDE_URL = 'https://gotgam100.github.io/dontpanicpre/docs/guide.html';
+
 function showHelp() {
-  switchTab('help', null);
+  window.open(GUIDE_URL, '_blank', 'noopener,noreferrer');
 }
 function closeHelp() {
+  // 탭 전환은 더 이상 사용하지 않지만 외부 참조 대비 유지
   switchTab('editor', document.querySelector('.nav-btn'));
 }
 
@@ -4361,25 +4392,33 @@ function renderCharDetail(name) {
   const info       = charInfo[name] || {};
   const charScenes = scenes.filter(s => getAllChars(s).includes(name));
   const note       = charNotes[name] || '';
+  const setting    = info.setting || '';
+  const t          = _charDetailTab;
 
   const scenesHtml = charScenes.length
     ? charScenes.map(s => {
-        const num  = s.displayNum || s.number;
-        const loc  = s.loc || '';
-        const ie   = s.ie  || '';
-        const time = TIME_LABEL[s.time] || s.time || '';
-        const parts = [loc, ie, time].filter(Boolean).join(', ');
-        return `<div class="char-scene-row">S#${num}. ${esc(parts)}</div>`;
+        const num   = s.displayNum || s.number;
+        const loc   = s.loc || '';
+        const ie    = s.ie  || '';
+        const time  = TIME_LABEL[s.time] || s.time || '';
+        const parts = [loc, ie, time].filter(Boolean).join(' · ');
+        return `<div class="char-scene-chip">
+          <span class="char-scene-chip-num">S#${num}</span>
+          ${parts ? `<span class="char-scene-chip-loc">${esc(parts)}</span>` : ''}
+        </div>`;
       }).join('')
-    : `<div style="color:var(--text-dim);font-size:12px;padding:4px 0">등장 씬 없음</div>`;
+    : `<div style="color:var(--text-dim);font-size:12px;padding:8px 0">등장 씬 없음</div>`;
 
   document.getElementById('charsDetailPanel').innerHTML = `
     <div class="char-detail-inner">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+
+      <!-- 이름 + 삭제 -->
+      <div style="display:flex;align-items:center;gap:8px">
         <div class="char-detail-name" style="margin-bottom:0;flex:1">${esc(name)}</div>
         <button onclick="deleteChar('${esc(name)}')" style="padding:3px 10px;border-radius:5px;border:1px solid #f87171;background:rgba(248,113,113,.1);color:#f87171;font-size:11px;cursor:pointer;font-family:inherit;white-space:nowrap">삭제</button>
       </div>
 
+      <!-- 성별 / 나이 / 인물 색상 -->
       <div class="char-meta-row">
         <div class="char-meta-field">
           <div class="char-meta-label">성별</div>
@@ -4390,7 +4429,7 @@ function renderCharDetail(name) {
           </div>
         </div>
         <div class="char-meta-field">
-          <div class="char-meta-label">나이 ${info.age&&charInfo[name]&&charInfo[name]._autoAge?'<span style="font-size:10px;color:var(--accent)">(자동감지)</span>':''}</div>
+          <div class="char-meta-label">나이 ${info._autoAge?'<span style="font-size:10px;color:var(--accent)">(자동감지)</span>':''}</div>
           <input class="char-age-input" type="text"
             value="${esc(info.age||'')}"
             placeholder="예: 30대, 25세"
@@ -4408,31 +4447,41 @@ function renderCharDetail(name) {
               style="position:absolute;opacity:0;pointer-events:none;width:0;height:0"
               oninput="previewCharColor('${esc(name)}',this.value)"
               onchange="setCharColor('${esc(name)}',this.value)">
-            ${info.color
-              ? `<button class="char-color-reset" onclick="clearCharColor('${esc(name)}')">초기화</button>`
-              : ''}
+            ${info.color ? `<button class="char-color-reset" onclick="clearCharColor('${esc(name)}')">초기화</button>` : ''}
           </div>
         </div>
       </div>
 
-      <!-- 등장 씬 (접기/펼치기) -->
-      <div class="char-scenes-section">
-        <div class="char-scenes-label char-scenes-toggle" onclick="toggleCharScenes()">
-          등장 씬 (${charScenes.length})
-          <span class="char-scenes-chevron">${_charScenesOpen ? '▲' : '▼'}</span>
-        </div>
-        <div class="char-scene-list" id="charSceneList" style="display:${_charScenesOpen?'block':'none'}">
+      <!-- 탭 바 -->
+      <div class="char-detail-tabs">
+        <button class="char-tab-btn${t==='setting'?' on':''}" onclick="switchCharDetailTab('setting')">캐릭터 설정</button>
+        <button class="char-tab-btn${t==='scenes'?' on':''}" onclick="switchCharDetailTab('scenes')">등장씬 <span class="char-tab-count">${charScenes.length}</span></button>
+        <button class="char-tab-btn${t==='memo'?' on':''}"    onclick="switchCharDetailTab('memo')">메모</button>
+      </div>
+
+      <!-- 캐릭터 설정 패널 -->
+      <div class="char-tab-panel${t==='setting'?' on':''}" data-tab="setting">
+        <textarea class="char-memo" id="charSettingArea"
+          placeholder="외모, 성격, 배경, 감정선 등 자유롭게 입력하세요..."
+          oninput="saveCharSetting('${esc(name)}')"
+        >${esc(setting)}</textarea>
+      </div>
+
+      <!-- 등장씬 패널 -->
+      <div class="char-tab-panel${t==='scenes'?' on':''}" data-tab="scenes">
+        <div class="char-scene-chips">
           ${scenesHtml}
         </div>
       </div>
 
-      <div style="flex:1;display:flex;flex-direction:column">
-        <div class="char-memo-label">캐릭터 설정 / 메모</div>
+      <!-- 메모 패널 -->
+      <div class="char-tab-panel${t==='memo'?' on':''}" data-tab="memo">
         <textarea class="char-memo" id="charMemoArea"
-          placeholder="외모, 성격, 배경, 감정선 등 자유롭게 메모하세요..."
+          placeholder="메모..."
           oninput="saveCharNote('${esc(name)}')"
         >${esc(note)}</textarea>
       </div>
+
     </div>`;
 }
 
@@ -4666,6 +4715,25 @@ function setCharEmoji(name, emoji) {
 }
 
 // ── 등장씬 접기/펼치기 ───────────────────────────
+function switchCharDetailTab(tab) {
+  _charDetailTab = tab;
+  document.querySelectorAll('.char-tab-btn').forEach((btn, i) => {
+    const tabs = ['setting', 'scenes', 'memo'];
+    btn.classList.toggle('on', tabs[i] === tab);
+  });
+  document.querySelectorAll('.char-tab-panel').forEach(panel => {
+    panel.classList.toggle('on', panel.dataset.tab === tab);
+  });
+}
+
+function saveCharSetting(name) {
+  const el = document.getElementById('charSettingArea');
+  if (!el) return;
+  if (!charInfo[name]) charInfo[name] = {};
+  charInfo[name].setting = el.value;
+  save();
+}
+
 function toggleCharScenes() {
   _charScenesOpen = !_charScenesOpen;
   const list    = document.getElementById('charSceneList');
@@ -5551,10 +5619,12 @@ function scaleCSSheet() {
 }
 window.addEventListener('resize', () => {
   if (document.getElementById('tab-callsheet')?.classList.contains('on')) scaleCSSheet();
+  updatePageBreaks(); // 창 크기 변경 시 페이지 구분선 재계산
 });
 window.addEventListener('orientationchange', () => {
   setTimeout(() => {
     if (document.getElementById('tab-callsheet')?.classList.contains('on')) scaleCSSheet();
+    updatePageBreaks();
   }, 350); // 회전 완료 후 재계산
 });
 
@@ -5666,6 +5736,8 @@ function switchTab(id, btn) {
   if(id==='costumelist')  renderCostumeList();
   if(id==='info')         refreshSettingsTab();
   if(id==='projinfo')     refreshProjInfoSection();
+  // 스크립트 탭으로 복귀 시 페이지 구분선 재계산 (탭 전환 중 레이아웃 변동 대응)
+  if(id==='editor')       requestAnimationFrame(updatePageBreaks);
 }
 function refreshSettingsTab() {
   const bc = document.getElementById('stgBreadcrumb');
@@ -7312,6 +7384,46 @@ function removeLocProp(loc, idx) {
 }
 
 // ══════════════════════════════════════════════════
+// ══════════════════════════════════════════════════
+// 컬럼 리사이즈 (스태프·배우 공용)
+// ══════════════════════════════════════════════════
+function applyColResize(tableEl, storageKey) {
+  const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+  const ths = [...tableEl.querySelectorAll('thead th')];
+  ths.forEach((th, idx) => {
+    // 드래그 열·삭제 열은 제외
+    if (th.style.width === '32px' || th.style.width === '28px') return;
+    // 저장된 너비 복원
+    if (saved[idx]) th.style.width = saved[idx] + 'px';
+    // 핸들 생성
+    const handle = document.createElement('div');
+    handle.className = 'col-resize-handle';
+    th.appendChild(handle);
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = th.offsetWidth;
+      handle.classList.add('resizing');
+      document.body.style.cursor = 'col-resize';
+      const onMove = ev => {
+        const newW = Math.max(50, startW + ev.clientX - startX);
+        th.style.width = newW + 'px';
+      };
+      const onUp = ev => {
+        const newW = Math.max(50, startW + ev.clientX - startX);
+        saved[idx] = newW;
+        localStorage.setItem(storageKey, JSON.stringify(saved));
+        handle.classList.remove('resizing');
+        document.body.style.cursor = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  });
+}
+
 // 제작진 — 스태프 리스트
 // ══════════════════════════════════════════════════
 let _staffDragSrcIdx = null;
@@ -7330,25 +7442,34 @@ function renderStaffList() {
       ondragleave="staffDragLeave(event,${i})" ondrop="staffDrop(event,${i})"
       ondragend="staffDragEnd(event)">
       <td class="crew-td crew-td-drag"><span class="crew-drag-handle">⠿</span></td>
-      <td class="crew-td"><input class="crew-inp" value="${esc2(s.dept)}" placeholder="부서" onchange="updateStaff(${i},'dept',this.value)"></td>
-      <td class="crew-td"><input class="crew-inp" value="${esc2(s.role)}" placeholder="역할" onchange="updateStaff(${i},'role',this.value)"></td>
+      <td class="crew-td crew-td-dept"><input class="crew-inp" value="${esc2(s.dept)}" placeholder="부서" onchange="updateStaff(${i},'dept',this.value)"></td>
+      <td class="crew-td crew-td-role"><input class="crew-inp" value="${esc2(s.role)}" placeholder="역할" onchange="updateStaff(${i},'role',this.value)"></td>
+      <td class="crew-td crew-td-detail-role"><input class="crew-inp" value="${esc2(s.detailRole)}" placeholder="세부역할" onchange="updateStaff(${i},'detailRole',this.value)"></td>
       <td class="crew-td crew-td-name"><input class="crew-inp" value="${esc2(s.name)}" placeholder="이름" onchange="updateStaff(${i},'name',this.value)"></td>
       <td class="crew-td crew-td-phone"><input class="crew-inp" value="${esc2(s.phone)}" placeholder="연락처" onchange="updateStaff(${i},'phone',this.value)"></td>
+      <td class="crew-td crew-td-email"><input class="crew-inp" value="${esc2(s.email)}" placeholder="이메일" onchange="updateStaff(${i},'email',this.value)"></td>
       <td class="crew-td"><input class="crew-inp" value="${esc2(s.note)}" placeholder="메모" onchange="updateStaff(${i},'note',this.value)"></td>
       <td class="crew-td crew-td-del"><button class="crew-del-btn" onclick="deleteStaff(${i})" title="삭제">✕</button></td>
     </tr>`).join('');
   wrap.innerHTML = `<table class="crew-table">
     <thead><tr>
       <th class="crew-th" style="width:32px"></th>
-      <th class="crew-th">부서</th><th class="crew-th">역할</th>
-      <th class="crew-th">이름</th><th class="crew-th">연락처</th>
+      <th class="crew-th">부서</th><th class="crew-th">역할</th><th class="crew-th">세부역할</th>
+      <th class="crew-th">이름</th><th class="crew-th">연락처</th><th class="crew-th">이메일</th>
       <th class="crew-th">메모</th><th class="crew-th" style="width:32px"></th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
+  const tbl = wrap.querySelector('.crew-table');
+  if (tbl) applyColResize(tbl, 'staffColWidths');
+}
+function resetStaffToDefault() {
+  if (!confirm('스태프 리스트를 기본값으로 초기화하시겠습니까?\n이름·연락처·이메일·메모 등 입력된 내용이 모두 삭제됩니다.')) return;
+  staffList = _defaultStaff();
+  save(); renderStaffList();
 }
 function addStaffRow() {
-  staffList.push({ id: _crewId(), dept: '', role: '', name: '', phone: '', note: '' });
+  staffList.push({ id: _crewId(), dept: '', role: '', detailRole: '', name: '', phone: '', email: '', note: '' });
   save(); renderStaffList();
   setTimeout(() => {
     const rows = document.querySelectorAll('#stafflistWrap .crew-row');
@@ -7388,24 +7509,29 @@ function renderActorList() {
       ondragleave="actorDragLeave(event,${i})" ondrop="actorDrop(event,${i})"
       ondragend="actorDragEnd(event)">
       <td class="crew-td crew-td-drag"><span class="crew-drag-handle">⠿</span></td>
-      <td class="crew-td crew-td-name"><input class="crew-inp" value="${esc2(a.character)}" placeholder="배역명" onchange="updateActor(${i},'character',this.value)"></td>
-      <td class="crew-td crew-td-name"><input class="crew-inp" value="${esc2(a.name)}" placeholder="배우 이름" onchange="updateActor(${i},'name',this.value)"></td>
-      <td class="crew-td crew-td-phone"><input class="crew-inp" value="${esc2(a.phone)}" placeholder="연락처" onchange="updateActor(${i},'phone',this.value)"></td>
+      <td class="crew-td crew-td-actor-char"><input class="crew-inp" value="${esc2(a.character)}" placeholder="배역명" onchange="updateActor(${i},'character',this.value)"></td>
+      <td class="crew-td crew-td-actor-name"><input class="crew-inp" value="${esc2(a.name)}" placeholder="배우명" onchange="updateActor(${i},'name',this.value)"></td>
+      <td class="crew-td crew-td-actor-agency"><input class="crew-inp" value="${esc2(a.agency)}" placeholder="소속사" onchange="updateActor(${i},'agency',this.value)"></td>
+      <td class="crew-td crew-td-phone"><input class="crew-inp" value="${esc2(a.phone)}" placeholder="연락처1" onchange="updateActor(${i},'phone',this.value)"></td>
+      <td class="crew-td crew-td-phone"><input class="crew-inp" value="${esc2(a.phone2)}" placeholder="연락처2" onchange="updateActor(${i},'phone2',this.value)"></td>
       <td class="crew-td"><input class="crew-inp" value="${esc2(a.note)}" placeholder="메모" onchange="updateActor(${i},'note',this.value)"></td>
       <td class="crew-td crew-td-del"><button class="crew-del-btn" onclick="deleteActor(${i})" title="삭제">✕</button></td>
     </tr>`).join('');
   wrap.innerHTML = `<table class="crew-table">
     <thead><tr>
       <th class="crew-th" style="width:32px"></th>
-      <th class="crew-th">배역</th><th class="crew-th">배우명</th>
-      <th class="crew-th">연락처</th><th class="crew-th">메모</th>
+      <th class="crew-th">배역명</th><th class="crew-th">배우명</th>
+      <th class="crew-th">소속사</th><th class="crew-th">연락처1</th>
+      <th class="crew-th">연락처2</th><th class="crew-th">메모</th>
       <th class="crew-th" style="width:32px"></th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
+  const tbl = wrap.querySelector('.crew-table');
+  if (tbl) applyColResize(tbl, 'actorColWidths');
 }
 function addActorRow() {
-  actorList.push({ id: _crewId(), character: '', name: '', phone: '', note: '' });
+  actorList.push({ id: _crewId(), character: '', name: '', agency: '', phone: '', phone2: '', note: '' });
   save(); renderActorList();
   setTimeout(() => {
     const rows = document.querySelectorAll('#actorlistWrap .crew-row');
@@ -8353,6 +8479,7 @@ async function presenceJoin() {
       renderLeftSidebar();
       renderSceneBd();
       renderBreakdown();
+      updatePageBreaks(); // Firestore 업데이트 후 페이지 구분선 재계산
       const onTab = id => document.getElementById(id)?.classList.contains('on');
       if (onTab('tab-chars'))       renderChars();
       if (onTab('tab-loclist'))     renderLocList();

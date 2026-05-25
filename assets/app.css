@@ -203,16 +203,33 @@ body {
 }
 .crew-add-btn:hover { background: var(--surface3); }
 .crew-scroll { flex: 1; overflow-y: auto; padding-bottom: 32px; }
-.crew-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.crew-table { border-collapse: collapse; font-size: 13px; table-layout: fixed; width: max-content; min-width: 100%; }
 .crew-th {
   padding: 7px 10px; text-align: left; font-size: 11px; font-weight: 600;
   color: var(--text-dim); border-bottom: 2px solid var(--border2);
   background: var(--surface2); white-space: nowrap; position: sticky; top: 0; z-index: 1;
+  user-select: none; overflow: hidden;
+}
+/* 컬럼 리사이즈 핸들 */
+.col-resize-handle {
+  position: absolute; right: 0; top: 0; bottom: 0; width: 6px;
+  cursor: col-resize; z-index: 2;
+}
+.col-resize-handle:hover, .col-resize-handle.resizing {
+  background: var(--accent);
+  opacity: 0.5;
 }
 .crew-td { padding: 2px 4px; border-bottom: 1px solid var(--border); }
 .crew-td-drag { width: 28px; text-align: center; }
+.crew-td-dept { min-width: 90px; }
+.crew-td-role { min-width: 110px; }
+.crew-td-detail-role { min-width: 120px; }
 .crew-td-phone { width: 130px; }
+.crew-td-email { min-width: 160px; }
 .crew-td-del { width: 32px; text-align: center; }
+.crew-td-actor-char   { min-width: 100px; }
+.crew-td-actor-name   { min-width: 100px; }
+.crew-td-actor-agency { min-width: 120px; }
 .crew-drag-handle {
   cursor: grab; color: var(--text-dim); font-size: 14px;
   padding: 4px 6px; user-select: none; display: inline-block;
@@ -1507,7 +1524,7 @@ kbd {
 .char-list-sub { font-size: 12px; color: var(--text-dim); }
 
 .chars-detail-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); }
-.char-detail-inner { flex: 1; padding: 24px 28px; display: flex; flex-direction: column; overflow-y: auto; gap: 18px; }
+.char-detail-inner { flex: 1; padding: 24px 28px; display: flex; flex-direction: column; overflow-y: hidden; gap: 14px; }
 .char-detail-name { font-size: 22px; font-weight: 900; letter-spacing: -.5px; }
 .char-meta-row { display: flex; gap: 20px; flex-wrap: wrap; }
 .char-meta-field { display: flex; flex-direction: column; gap: 6px; }
@@ -1518,15 +1535,60 @@ kbd {
 .gender-btn.on { border-color: var(--accent); background: var(--accent-glow); color: var(--accent); }
 .char-age-input { background: var(--surface2); border: 1px solid var(--border2); border-radius: 5px; color: var(--text); font-size: 14px; padding: 4px 10px; outline: none; font-family: inherit; width: 120px; transition: border-color .15s; }
 .char-age-input:focus { border-color: var(--accent); }
-.char-scenes-label { font-size: 11px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 7px; }
-.char-scene-chips { display: flex; flex-wrap: wrap; gap: 5px; }
-.char-scene-chip { background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; padding: 4px 10px; font-size: 13px; display: flex; align-items: center; gap: 5px; white-space: nowrap; overflow: hidden; max-width: 280px; }
-/* 등장씬 접기/펼치기 */
-.char-scenes-section { display: flex; flex-direction: column; gap: 6px; }
-.char-scenes-toggle {
-  cursor: pointer; display: flex; align-items: center; justify-content: space-between;
-  user-select: none; padding: 2px 0;
+/* 인물 상세 탭 바 */
+.char-detail-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border2);
+  margin-bottom: -4px;
 }
+.char-tab-btn {
+  padding: 7px 18px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color .12s, border-color .12s;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.char-tab-btn:hover { color: var(--text); }
+.char-tab-btn.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.char-tab-count {
+  font-size: 11px; font-weight: 700;
+  background: var(--surface3); color: var(--text-dim);
+  border-radius: 10px; padding: 1px 7px; min-width: 20px; text-align: center;
+}
+.char-tab-btn.on .char-tab-count { background: var(--accent-glow); color: var(--accent); }
+
+/* 탭 패널 */
+.char-tab-panel { display: none; flex: 1; flex-direction: column; min-height: 0; }
+.char-tab-panel.on { display: flex; }
+
+/* 등장씬 칩 */
+.char-scene-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  align-content: flex-start; overflow-y: auto;
+}
+.char-scene-chip {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 11px;
+  display: flex; align-items: center; gap: 6px;
+  white-space: nowrap; cursor: default;
+}
+.char-scene-chip-num { font-size: 13px; font-weight: 700; color: var(--text); }
+.char-scene-chip-loc { font-size: 11px; color: var(--text-muted); }
+
+/* (legacy — 구버전 씬 리스트, 참조만) */
+.char-scenes-label { font-size: 11px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 7px; }
+.char-scenes-section { display: flex; flex-direction: column; gap: 6px; }
+.char-scenes-toggle { cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none; padding: 2px 0; }
 .char-scenes-toggle:hover { color: var(--text); }
 .char-scenes-chevron { font-size: 10px; opacity: .6; margin-left: 6px; }
 .char-scene-list { display: flex; flex-direction: column; gap: 3px; }
@@ -1564,7 +1626,7 @@ kbd {
 .char-card-emoji:hover { background: rgba(255,255,255,.12); }
 
 .char-memo-label { font-size: 11px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 7px; }
-.char-memo { flex: 1; min-height: 180px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 13px; color: var(--text); font-family: inherit; font-size: 14px; resize: vertical; outline: none; line-height: 1.7; transition: border-color .15s; }
+.char-memo { flex: 1; min-height: 180px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 13px; color: var(--text); font-family: inherit; font-size: 14px; resize: none; outline: none; line-height: 1.7; transition: border-color .15s; }
 .char-memo:focus { border-color: var(--accent); }
 .char-color-wrap { position: relative; display: flex; align-items: center; gap: 7px; }
 .char-color-swatch {
