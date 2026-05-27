@@ -216,45 +216,28 @@
       border: 1px solid var(--border2);
       display: block;
       box-shadow: 0 8px 32px rgba(0,0,0,.45);
-    }
-    .screenshot-wrap {
-      display: flex;
-      gap: 20px;
-      align-items: flex-start;
-      flex-wrap: wrap;
-      margin-top: 8px;
-    }
-    .screenshot-wrap .screenshot {
-      flex-shrink: 0;
-      width: 220px;
+      width: 100%;
     }
     .screenshot-caption {
-      font-size: 12px;
+      font-size: 13px;
       color: var(--text-dim);
       text-align: center;
-      margin-top: 7px;
-    }
-    .screenshot-center {
-      text-align: center;
       margin-top: 8px;
     }
-    .screenshot-center .screenshot {
-      max-width: 320px;
-      width: 100%;
+    /* 단독 중앙 이미지 */
+    .screenshot-single {
+      margin-top: 10px;
+      max-width: 380px;
     }
-    .screenshot-row {
-      display: flex;
+    /* 2열 그리드 */
+    .screenshot-grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
       gap: 14px;
-      flex-wrap: wrap;
-      margin-top: 8px;
+      margin-top: 10px;
     }
-    .screenshot-row .screenshot-col {
-      flex: 1;
-      min-width: 160px;
-      text-align: center;
-    }
-    .screenshot-row .screenshot-col .screenshot {
-      width: 100%;
+    @media (max-width: 500px) {
+      .screenshot-grid-2 { grid-template-columns: 1fr; }
     }
 
     /* 푸터 */
@@ -337,70 +320,62 @@
         <p><a href="https://dontpanicpre.web.app" style="color:var(--accent);font-weight:700">dontpanicpre.web.app</a>에 접속하면 로그인 화면이 나타납니다.<br>
         <strong>Google 계정</strong>으로 바로 시작하거나, <strong>이메일·비밀번호</strong>로 회원가입 후 로그인할 수 있습니다.</p>
 
-        <!-- 로그인 화면 스크린샷 -->
-        <div class="screenshot-wrap">
-          <div>
-            <img class="screenshot" src="images/login-screen2.png" alt="로그인 화면" style="width:200px">
-            <div class="screenshot-caption">로그인 화면</div>
+        <!-- 방법 1: Google 로그인 -->
+        <strong>방법 ① — Google 계정으로 로그인</strong>
+        <div class="screenshot-single">
+          <img class="screenshot" src="images/login-screen2.png" alt="로그인 화면">
+          <div class="screenshot-caption">로그인 화면 — Google 버튼 또는 이메일로 로그인</div>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text">로그인 화면에서 <strong>Google 계정으로 계속하기</strong> 버튼을 클릭합니다.</div>
           </div>
-          <div style="flex:1;min-width:180px;display:flex;flex-direction:column;gap:18px;justify-content:center">
-
-            <!-- 방법 1 -->
-            <div>
-              <p style="font-weight:700;color:var(--text);margin-bottom:10px">방법 ① — Google 계정으로 로그인</p>
-              <div class="steps">
-                <div class="step">
-                  <div class="step-num">1</div>
-                  <div class="step-text"><strong>Google 계정으로 계속하기</strong> 버튼을 클릭합니다.</div>
-                </div>
-                <div class="step">
-                  <div class="step-num">2</div>
-                  <div class="step-text">사용할 Google 계정을 선택하면 즉시 로그인됩니다. 별도 회원가입이 필요 없습니다.</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 방법 2 -->
-            <div>
-              <p style="font-weight:700;color:var(--text);margin-bottom:10px">방법 ② — 이메일로 회원가입 후 로그인</p>
-              <div class="steps">
-                <div class="step">
-                  <div class="step-num">1</div>
-                  <div class="step-text"><strong>[회원가입]</strong> 탭을 선택하고 이메일·비밀번호를 입력합니다.</div>
-                </div>
-                <div class="step">
-                  <div class="step-num">2</div>
-                  <div class="step-text"><strong>[회원가입]</strong> 버튼을 누르면 계정 생성 후 자동 로그인됩니다.</div>
-                </div>
-                <div class="step">
-                  <div class="step-num">3</div>
-                  <div class="step-text">다음 방문부터는 <strong>[로그인]</strong> 탭에서 이메일·비밀번호로 로그인합니다.</div>
-                </div>
-              </div>
-            </div>
-
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text">사용할 Google 계정을 선택하면 즉시 로그인됩니다. 별도 회원가입이 필요 없습니다.</div>
           </div>
         </div>
+
+        <!-- 방법 2: 이메일 회원가입 -->
+        <strong>방법 ② — 이메일로 회원가입 후 로그인</strong>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text">로그인 화면에서 <strong>[회원가입]</strong> 탭을 클릭합니다.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text">사용할 <strong>이메일 주소</strong>와 <strong>비밀번호(6자 이상)</strong>를 입력합니다.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text"><strong>[회원가입]</strong> 버튼을 누르면 계정이 생성되고 자동으로 로그인됩니다.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-text">다음 방문부터는 <strong>[로그인]</strong> 탭에서 이메일·비밀번호로 로그인합니다.</div>
+          </div>
+        </div>
+        <p>💡 <strong>비밀번호를 잊은 경우</strong>: 로그인 화면 하단의 <em>비밀번호를 잊으셨나요?</em> 링크를 클릭하면 재설정 이메일을 받을 수 있습니다.</p>
 
         <!-- 로그인 후 화면 -->
         <strong>로그인 후 — 프로젝트 선택 화면</strong>
-        <div class="screenshot-row">
-          <div class="screenshot-col">
+        <div class="screenshot-grid-2">
+          <div>
             <img class="screenshot" src="images/login-screen3.png" alt="내 프로젝트 화면">
             <div class="screenshot-caption">내 프로젝트 탭 — 프로젝트 목록 및 코드 참여</div>
           </div>
-          <div class="screenshot-col">
+          <div>
             <img class="screenshot" src="images/login-screen1.png" alt="수동 프로젝트 화면">
             <div class="screenshot-caption">수동 프로젝트 탭 — JSON 파일로 불러오기</div>
           </div>
-          <div class="screenshot-col">
-            <img class="screenshot" src="images/login-screen4.png" alt="새 프로젝트 생성">
-            <div class="screenshot-caption">+ 새 프로젝트 — 이름 입력 후 만들기</div>
-          </div>
+        </div>
+        <div class="screenshot-single" style="max-width:340px;margin:10px auto 0">
+          <img class="screenshot" src="images/login-screen4.png" alt="새 프로젝트 생성">
+          <div class="screenshot-caption">+ 새 프로젝트 버튼 클릭 시 — 프로젝트 이름 입력 후 만들기</div>
         </div>
         <p>로그인하면 <strong>프로젝트 선택 화면</strong>이 나타납니다. <strong>[+ 새 프로젝트]</strong>로 새 작업을 시작하거나, 기존 프로젝트를 클릭해 바로 열 수 있습니다. 공유 코드가 있다면 <strong>코드로 참여하기</strong>로 팀 프로젝트에 합류할 수 있습니다.</p>
-
-        <p>💡 <strong>비밀번호를 잊은 경우</strong>: 로그인 화면 하단의 <em>비밀번호를 잊으셨나요?</em> 링크를 클릭하면 재설정 이메일을 받을 수 있습니다.</p>
       </div>
     </section>
 
