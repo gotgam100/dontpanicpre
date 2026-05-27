@@ -86,29 +86,114 @@
  * LIGHT THEME — overrides :root dark tokens
  * ============================================================ */
 html[data-theme="light"] {
-  --bg:          #f5f7fa;
-  --surface:     #ffffff;
-  --surface2:    #f0f2f9;
-  --surface3:    #e4e8f4;
-  --border:      #d4d9ee;
-  --border2:     #b8bfdb;
+  --bg:          #f0ece4;
+  --surface:     #f8f5ef;
+  --surface2:    #ede9e1;
+  --surface3:    #e0dbd1;
+  --border:      #c8c2b6;
+  --border2:     #b0a99c;
   --text:        #1a1d2e;
-  --text-muted:  #5a6480;
-  --text-dim:    #8e97b4;
+  --text-muted:  #4a5068;
+  --text-dim:    #7a8090;
   --accent:      #4f5fd4;
   --accent-glow: rgba(79,95,212,0.12);
   --c-head:      #111827;
   --c-char:      #4338ca;
   --c-dial:      #374151;
+  --page-gap:    #d9d4c8; /* 스크립트 배경: 아이보리, 본문보다 어둡게 */
 }
+
+/* ── 헤더: 라이트모드에서도 어두운 편 ── */
 html[data-theme="light"] .header {
-  background: rgba(255,255,255,0.88);
-  border-bottom: 1px solid rgba(0,0,0,.09);
+  background: rgba(38, 41, 62, 0.93);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(255,255,255,.08);
 }
+html[data-theme="light"] .nav-btn {
+  color: rgba(180,185,215,0.85);
+}
+html[data-theme="light"] .nav-btn:hover {
+  background: rgba(255,255,255,.1);
+  color: #e4e8f5;
+}
+html[data-theme="light"] .nav-btn.on {
+  background: rgba(255,255,255,.16);
+  color: #fff;
+}
+html[data-theme="light"] .list-nav-item {
+  color: var(--text);
+}
+html[data-theme="light"] .project-name {
+  color: #e4e8f5;
+  border-color: transparent;
+}
+html[data-theme="light"] .project-name:focus {
+  border-color: rgba(124,140,248,.6);
+}
+html[data-theme="light"] .toolbar-parse-status { color: rgba(160,170,200,0.75); }
+html[data-theme="light"] .pdf-btn {
+  background: rgba(255,255,255,.12);
+  border-color: rgba(255,255,255,.2);
+  color: #e4e8f5;
+}
+html[data-theme="light"] .pdf-btn:hover { background: rgba(255,255,255,.2); }
+
+/* ── 사이드바: 라이트모드에서도 어두운 편 ── */
 html[data-theme="light"] .sidebar {
-  background: linear-gradient(180deg, #f8f9fe 0%, #eef0fb 100%);
-  border-right: 1px solid rgba(0,0,0,.08);
+  background: linear-gradient(180deg, #2a2d48 0%, #22253c 100%);
+  border-right: 1px solid rgba(255,255,255,.07);
 }
+html[data-theme="light"] .sidebar-header {
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+html[data-theme="light"] .sidebar-app-title { color: #e4e8f5; }
+html[data-theme="light"] .sidebar-toggle-btn { color: rgba(180,185,215,0.75); }
+html[data-theme="light"] .sidebar-toggle-btn:hover {
+  background: rgba(255,255,255,.1);
+  color: #e4e8f5;
+}
+html[data-theme="light"] .sidebar-project-block {
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+html[data-theme="light"] .sidebar-project-label { color: rgba(160,170,200,0.6); }
+html[data-theme="light"] .sidebar-project-name { color: #e4e8f5; }
+html[data-theme="light"] .sidebar-project-name:hover { background: rgba(255,255,255,.08); }
+html[data-theme="light"] .sidebar-project-sub { color: rgba(160,170,200,0.65); }
+html[data-theme="light"] .sidebar-scene-item { color: rgba(200,205,228,0.82); }
+html[data-theme="light"] .sidebar-scene-item:hover { background: rgba(255,255,255,.07); }
+html[data-theme="light"] .sidebar-scene-item.active {
+  background: rgba(79,95,212,0.2);
+  color: #a5b4fc;
+  border-left-color: #7c8cf8;
+}
+html[data-theme="light"] .sidebar-scene-empty { color: rgba(160,170,200,0.55); }
+html[data-theme="light"] .sb-snum { color: rgba(200,205,228,0.82); }
+html[data-theme="light"] .sidebar-footer {
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+html[data-theme="light"] .sidebar-user-btn { color: #e4e8f5; }
+html[data-theme="light"] .sidebar-user-btn:hover { background: rgba(255,255,255,.08); }
+html[data-theme="light"] .sidebar-user-name { color: #e4e8f5; }
+html[data-theme="light"] .sidebar-user-role { color: rgba(180,185,215,0.8); }
+html[data-theme="light"] .sidebar-user-email { color: rgba(160,170,200,0.65); }
+
+/* ── 노란색/흰색 하드코딩 텍스트 → 라이트모드 대응 ── */
+html[data-theme="light"] .sidebar-user-role.role-viewer {
+  color: #b45309;
+  border-color: rgba(180,83,9,.35);
+  background: rgba(180,83,9,.09);
+}
+html[data-theme="light"] .unsched-title { color: #b45309; }
+html[data-theme="light"] .empty-dont-panic {
+  color: #d97706;
+  text-shadow: 2px 2px 0 rgba(0,0,0,.12);
+}
+html[data-theme="light"] .pi-invite-tab[data-tab="viewer"] { color: #b45309; }
+html[data-theme="light"] .pi-invite-panel[data-panel="viewer"] .pi-invite-method-title { color: #b45309; }
+html[data-theme="light"] .pi-invite-panel[data-panel="viewer"] .pi-code-val { color: #b45309; }
+html[data-theme="light"] .pi-invite-panel[data-panel="viewer"] .pi-code-gen-btn { color: #b45309; }
+html[data-theme="light"] .b-day { background: rgba(217,119,6,.12); color: #b45309; }
 
 /* ============================================================
  * SCRIPT READ MODE fabs
