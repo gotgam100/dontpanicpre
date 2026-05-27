@@ -82,7 +82,33 @@
   .nav-btn:hover { background: inherit; color: inherit; }
 }
 
-/* LIGHT THEME — 사용하지 않음 (다크 테마 고정) */
+/* ============================================================
+ * LIGHT THEME — overrides :root dark tokens
+ * ============================================================ */
+html[data-theme="light"] {
+  --bg:          #f5f7fa;
+  --surface:     #ffffff;
+  --surface2:    #f0f2f9;
+  --surface3:    #e4e8f4;
+  --border:      #d4d9ee;
+  --border2:     #b8bfdb;
+  --text:        #1a1d2e;
+  --text-muted:  #5a6480;
+  --text-dim:    #8e97b4;
+  --accent:      #4f5fd4;
+  --accent-glow: rgba(79,95,212,0.12);
+  --c-head:      #111827;
+  --c-char:      #4338ca;
+  --c-dial:      #374151;
+}
+html[data-theme="light"] .header {
+  background: rgba(255,255,255,0.88);
+  border-bottom: 1px solid rgba(0,0,0,.09);
+}
+html[data-theme="light"] .sidebar {
+  background: linear-gradient(180deg, #f8f9fe 0%, #eef0fb 100%);
+  border-right: 1px solid rgba(0,0,0,.08);
+}
 
 /* ============================================================
  * SCRIPT READ MODE fabs
