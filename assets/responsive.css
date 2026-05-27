@@ -139,10 +139,14 @@ html[data-theme="light"] .pdf-btn {
 }
 html[data-theme="light"] .pdf-btn:hover { background: rgba(255,255,255,.2); }
 
-/* ── 사이드바: 라이트모드에서도 어두운 편 ── */
+/* ── 사이드바: 헤더/푸터는 상단바와 동일 어둡기, 씬리스트는 밝게 ── */
 html[data-theme="light"] .sidebar {
-  background: linear-gradient(180deg, #2a2d48 0%, #22253c 100%);
+  background: rgba(38, 41, 62, 1); /* 상단 헤더와 동일 어둡기 */
   border-right: 1px solid rgba(255,255,255,.07);
+}
+/* 씬 목록 영역: 다른 패널처럼 밝은 배경 */
+html[data-theme="light"] .sidebar-scene-nav {
+  background: var(--surface);
 }
 html[data-theme="light"] .sidebar-header {
   border-bottom: 1px solid rgba(255,255,255,.08);
@@ -160,15 +164,16 @@ html[data-theme="light"] .sidebar-project-label { color: rgba(160,170,200,0.6); 
 html[data-theme="light"] .sidebar-project-name { color: #e4e8f5; }
 html[data-theme="light"] .sidebar-project-name:hover { background: rgba(255,255,255,.08); }
 html[data-theme="light"] .sidebar-project-sub { color: rgba(160,170,200,0.65); }
-html[data-theme="light"] .sidebar-scene-item { color: rgba(200,205,228,0.82); }
-html[data-theme="light"] .sidebar-scene-item:hover { background: rgba(255,255,255,.07); }
+/* 씬 항목: 밝은 배경 위 기본 CSS 변수 색상 사용 */
+html[data-theme="light"] .sidebar-scene-item { color: var(--text); }
+html[data-theme="light"] .sidebar-scene-item:hover { background: var(--surface3); }
 html[data-theme="light"] .sidebar-scene-item.active {
-  background: rgba(79,95,212,0.2);
-  color: #a5b4fc;
-  border-left-color: #7c8cf8;
+  background: var(--accent-glow);
+  color: var(--accent);
+  border-left-color: var(--accent);
 }
-html[data-theme="light"] .sidebar-scene-empty { color: rgba(160,170,200,0.55); }
-html[data-theme="light"] .sb-snum { color: rgba(200,205,228,0.82); }
+html[data-theme="light"] .sidebar-scene-empty { color: var(--text-dim); }
+html[data-theme="light"] .sidebar-scene-nav .sb-snum { color: var(--text-muted); }
 html[data-theme="light"] .sidebar-footer {
   border-top: 1px solid rgba(255,255,255,.08);
 }
@@ -194,6 +199,17 @@ html[data-theme="light"] .pi-invite-panel[data-panel="viewer"] .pi-invite-method
 html[data-theme="light"] .pi-invite-panel[data-panel="viewer"] .pi-code-val { color: #b45309; }
 html[data-theme="light"] .pi-invite-panel[data-panel="viewer"] .pi-code-gen-btn { color: #b45309; }
 html[data-theme="light"] .b-day { background: rgba(217,119,6,.12); color: #b45309; }
+
+/* ── 참여자(editor) 초록색 → 라이트모드에서 어두운 녹색 ── */
+html[data-theme="light"] .pi-invite-tab[data-tab="editor"] { color: #15803d; border-color: rgba(21,128,61,.35); background: rgba(21,128,61,.08); }
+html[data-theme="light"] .pi-invite-tab[data-tab="editor"].active { color: #14532d; border-color: rgba(22,163,74,.6); }
+html[data-theme="light"] .pi-invite-panel[data-panel="editor"] .pi-invite-method-title { color: #16a34a; }
+html[data-theme="light"] .pi-invite-panel[data-panel="editor"] .pi-code-val { color: #16a34a; }
+html[data-theme="light"] .pi-invite-panel[data-panel="editor"] .pi-code-gen-btn { color: #15803d; border-color: rgba(21,128,61,.4); }
+
+/* ── 씬 브레이크다운 씬넘버 → 라이트모드에서 어두운 색 ── */
+html[data-theme="light"] .sb-card-hdr .sb-snum { color: var(--text); }
+html[data-theme="light"] .sb-card-hdr:hover .sb-snum { color: var(--accent); }
 
 /* ============================================================
  * SCRIPT READ MODE fabs
