@@ -30,13 +30,13 @@
     }
   }
   </script>
-  <script type="module" src="assets/editor.js?v=20260525-cross-del-sync"></script>
+  <script type="module" src="assets/editor.js?v=20260526-yjs-type-fix"></script>
   <link rel="stylesheet" href="assets/app.css?v=20260525-char-tabs">
   <link rel="stylesheet" href="assets/responsive.css">
 
   <!-- Theme init: apply before paint to avoid flash -->
   <script>(function () { var t = localStorage.getItem('dpre-theme') || 'dark'; document.documentElement.setAttribute('data-theme', t); })();</script>
-  <style id="bootOverlayGate">body.app-booting #projectsOverlay{display:none!important;visibility:hidden!important;pointer-events:none!important}</style>
+  <style id="bootOverlayGate">body.app-booting #projectsOverlay{display:none!important;visibility:hidden!important;pointer-events:none!important}body.app-booting .app-layout{visibility:hidden!important}</style>
 
   <!-- PWA -->
   <link rel="manifest" href="manifest.webmanifest">
@@ -448,7 +448,7 @@
       </div>
 
       <div class="projects-footer">
-        <button class="projects-logout-btn" onclick="logout()">로그아웃</button>
+        <button class="projects-logout-btn" onclick="confirmLogout()">로그아웃</button>
       </div>
     </div>
   </div>
@@ -514,7 +514,7 @@
           <div class="sidebar-user-popup-sep"></div>
           <button class="sidebar-user-popup-item" onclick="showProjectsOverlay();closeSidebarUserPopup()">📂 프로젝트
             선택</button>
-          <button class="sidebar-user-popup-item sidebar-user-popup-logout" onclick="logout()">🚪 로그아웃</button>
+          <button class="sidebar-user-popup-item sidebar-user-popup-logout" onclick="confirmLogout()">🚪 로그아웃</button>
         </div>
         <button class="sidebar-user-btn" id="sidebarUserBtn" onclick="toggleSidebarUserPopup()">
           <div class="sidebar-user-avatar" id="sidebarUserAvatar"></div>
@@ -696,7 +696,7 @@
                         onclick="setZoomFitPage()">📄 페이지에 맞추기</button>
                     </div>
                   </div>
-                  <button class="t-btn" onclick="openFindReplace()" title="찾기/바꾸기 (⌘F)">🔍</button>
+                  <button class="t-btn" id="findReplaceToggleBtn" onclick="toggleFindReplace()" title="찾기/바꾸기 (⌘F)">🔍</button>
                 </div>
               </div>
 
@@ -894,8 +894,7 @@
             </div>
           </div>
           <aside class="unsched-panel" id="unschedPanel">
-            <div class="unsched-title">미배치 씬<button class="unsched-toggle-btn" id="unschedToggleBtn"
-                onclick="toggleUnschedPanel()">▲</button></div>
+            <div class="unsched-title">미배치 씬</div>
             <div class="unsched-subtitle">드래그해서 배치</div>
             <div class="unsched-scroll" id="unschedScroll" ondragover="dragOverUnsched(event)"
               ondragleave="dragLeaveUnsched(event)" ondrop="dropToUnsched(event)">
@@ -1208,7 +1207,7 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260526-guide-url-fix" defer></script>
+  <script src="assets/app.js?v=20260526-yjs-type-fix" defer></script>
   <script src="assets/responsive.js?v=20260519-json-folder" defer></script>
 
   <!-- ═══ 하단 탭바 (모바일 전용) ═══ -->

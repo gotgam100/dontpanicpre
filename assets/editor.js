@@ -353,7 +353,25 @@ function parseHTML(html) {
   return _parser.parse(tmp);
 }
 
-// ── 8. DPEditor 공개 API ─────────────────────────
+// ── 8. 기본 플러그인 목록 (Yjs 없이) ────────────────
+function _basePlugins() {
+  return [
+    history(),
+    keymap({
+      'Enter':       handleEnter,
+      'Mod-z':       undo,
+      'Mod-y':       redo,
+      'Shift-Mod-z': redo,
+      'Tab':         (state, dispatch) => { dispatch(state.tr); return true; },
+    }),
+    keymap(baseKeymap),
+    buildPastePlugin(),
+    buildPageBreakPlugin(),
+    buildCallbackPlugin(_cbs),
+  ];
+}
+
+// ── 9. DPEditor 공개 API ─────────────────────────
 window.DPEditor = {
 
   // 에디터를 DOM 요소에 마운트 (앱 시작 시 1회 호출)
@@ -365,21 +383,8 @@ window.DPEditor = {
 
     const state = EditorState.create({
       schema: scriptSchema,
-      doc: parseHTML(el.innerHTML || ''),
-      plugins: [
-        history(),
-        keymap({
-          'Enter':       handleEnter,
-          'Mod-z':       undo,
-          'Mod-y':       redo,
-          'Shift-Mod-z': redo,
-          'Tab':         (state, dispatch) => { dispatch(state.tr); return true; },
-        }),
-        keymap(baseKeymap),
-        buildPastePlugin(),
-        buildPageBreakPlugin(),
-        buildCallbackPlugin(_cbs),
-      ],
+      doc:    parseHTML(el.innerHTML || ''),
+      plugins: _basePlugins(),
     });
 
     _view = new EditorView({ mount: el }, { state });
@@ -388,73 +393,77 @@ window.DPEditor = {
   // 프로젝트 열 때 Yjs WebSocket 연결
   connect(projectId) {
     if (!_view || !projectId) return;
-    this.disconnect(); // 이전 연결 정리
+    this.disconnect(); // 이전 연결 정리 + ySyncPlugin 제거
 
     _ydoc  = new Y.Doc();
     _ytype = _ydoc.getXmlFragment('prosemirror');
 
-    // ① 먼저 ySyncPlugin으로 PM 내용을 Y.XmlFragment에 초기화
+    // Firestore에서 로드된 현재 PM 문서를 권위 있는 소스로 저장
+    const authorityDoc = _view.state.doc;
+
+    // ① ySyncPlugin으로 PM 내용을 Y.XmlFragment에 초기화
     //    (Provider보다 먼저 해야 서버 상태가 덮어쓰는 것을 방지)
     const ySyncPlg = ySyncPlugin(_ytype);
     const newState = EditorState.create({
       schema: scriptSchema,
-      doc:    _view.state.doc,
-      plugins: [
-        ySyncPlg,
-        history(),
-        keymap({
-          'Enter':       handleEnter,
-          'Mod-z':       undo,
-          'Mod-y':       redo,
-          'Shift-Mod-z': redo,
-          'Tab':         (state, dispatch) => { dispatch(state.tr); return true; },
-        }),
-        keymap(baseKeymap),
-        buildPastePlugin(),
-        buildPageBreakPlugin(),
-        buildCallbackPlugin(_cbs),
-      ],
+      doc:    authorityDoc,
+      plugins: [ySyncPlg, ..._basePlugins()],
     });
     _view.updateState(newState);
 
-    // ② 그 다음 서버에 연결 (Y.XmlFragment가 이미 초기화된 상태로 연결)
+    // ② 서버에 연결
     _provider = new WebsocketProvider(WS_URL, `dpre-${projectId}`, _ydoc, { connect: true });
     _provider.on('status', ({ status }) => {
       document.getElementById('wsStatus')?.setAttribute('data-status', status);
     });
+
+    // ③ 첫 서버 동기화 후 타입 오염 감지 → Firestore 버전으로 복원
+    let _syncRestored = false;
+    _provider.on('sync', (isSynced) => {
+      if (!isSynced || _syncRestored) return;
+      _syncRestored = true;
+      requestAnimationFrame(() => {
+        if (!_view) return;
+        const cur = _view.state.doc;
+        const checkLen = Math.min(cur.childCount, authorityDoc.childCount);
+        let mismatch = 0;
+        for (let i = 0; i < checkLen; i++) {
+          if (cur.child(i).type.name !== authorityDoc.child(i).type.name) mismatch++;
+        }
+        // 전체의 5% 이상 타입이 달라지면 Firestore 버전으로 복원
+        if (mismatch > 0 && mismatch / checkLen >= 0.05) {
+          console.warn(`[DPEditor] 서버 동기화 후 ${mismatch}개 노드 타입 불일치 → Firestore 버전 복원`);
+          const tr = _view.state.tr.replaceWith(0, cur.content.size, authorityDoc.content);
+          _view.dispatch(tr);
+        }
+      });
+    });
   },
 
-  // 프로젝트 닫을 때 Yjs 연결 해제
+  // 프로젝트 닫을 때 Yjs 연결 해제 + ySyncPlugin 제거
   disconnect() {
     if (_provider) { _provider.destroy(); _provider = null; }
     if (_ydoc)     { _ydoc.destroy();     _ydoc     = null; }
     _ytype = null;
+    // PM 상태에서 ySyncPlugin 제거 — destroy된 ydoc 접근 오류 방지
+    if (_view) {
+      const cleanState = EditorState.create({
+        schema: scriptSchema,
+        doc:    _view.state.doc,
+        plugins: _basePlugins(),
+      });
+      _view.updateState(cleanState);
+    }
   },
 
   // HTML 문자열로 에디터 내용 교체 (applyLoadedData에서 호출)
+  // PM dispatch를 사용 — ySyncPlugin이 활성화된 경우 자동으로 Y.XmlFragment에 반영됨.
+  // (이전 Yjs 직접 조작 방식은 prosemirrorToY 미정의로 Y.XmlFragment를 비워버리는 버그 있었음)
   setContent(html) {
     if (!_view) return;
     const doc = parseHTML(html);
-
-    if (_ytype) {
-      // Yjs 모드: Y.XmlFragment를 직접 업데이트
-      _ydoc.transact(() => {
-        _ytype.delete(0, _ytype.length);
-        // ProseMirror 노드를 Y.XmlFragment로 변환
-        const { prosemirrorToY } = window.__yPM || {};
-        if (prosemirrorToY) {
-          prosemirrorToY(_ytype, doc, scriptSchema);
-        }
-      });
-    } else {
-      // 비-Yjs 모드: 트랜잭션으로 직접 교체
-      const tr = _view.state.tr.replaceWith(
-        0,
-        _view.state.doc.content.size,
-        doc.content
-      );
-      _view.dispatch(tr);
-    }
+    const tr  = _view.state.tr.replaceWith(0, _view.state.doc.content.size, doc.content);
+    _view.dispatch(tr);
   },
 
   // 현재 에디터 내용을 HTML로 반환 (doSave에서 호출)
@@ -573,6 +582,90 @@ window.DPEditor = {
     });
 
     if (removed) _view.dispatch(tr);
+  },
+
+  /**
+   * 현재 PM 선택 범위 안의 non-heading 블록 노드에 insertId / insertParentSeq 를 세팅.
+   * DOM 직접 조작 대신 PM 트랜잭션을 사용해 Yjs 재렌더 후에도 attr 유지.
+   * @param {string} markerId     임시 마커 ID (예: 'ins-m-1234567890')
+   * @param {string|null} parentSeq 부모 씬 번호
+   */
+  markSelectionAsInsert(markerId, parentSeq) {
+    if (!_view) return;
+    const { from, to } = _view.state.selection;
+    const tr = _view.state.tr;
+    _view.state.doc.nodesBetween(from, to, (node, pos) => {
+      if (!node.isBlock || node.type.name === 'doc') return true;
+      if (node.type.name === 'heading') return false;
+      const newAttrs = {
+        ...node.attrs,
+        insertId:        markerId,
+        insertParentSeq: parentSeq ? String(parentSeq) : null,
+      };
+      tr.setNodeMarkup(pos, null, newAttrs);
+    });
+    _view.dispatch(tr);
+  },
+
+  /**
+   * insertId 가 markerId 인 모든 블록 노드의 insert attrs 를 갱신.
+   * confirmInsertScene에서 ie / time / loc 세팅 시 사용.
+   * @param {string} markerId
+   * @param {object} attrs  { insertIe, insertTime, insertLoc } 등
+   */
+  updateInsertGroup(markerId, attrs) {
+    if (!_view) return;
+    const tr = _view.state.tr;
+    let changed = false;
+    _view.state.doc.descendants((node, pos) => {
+      if (!node.isBlock) return true;
+      if (node.attrs.insertId !== markerId) return true;
+      tr.setNodeMarkup(pos, null, { ...node.attrs, ...attrs });
+      changed = true;
+    });
+    if (changed) _view.dispatch(tr);
+  },
+
+  /**
+   * insertId が markerId である全ブロックノードのinsert attrs をクリア (취소/토글 제거).
+   * @param {string} markerId
+   */
+  clearInsertGroup(markerId) {
+    if (!_view) return;
+    const tr = _view.state.tr;
+    let changed = false;
+    _view.state.doc.descendants((node, pos) => {
+      if (!node.isBlock) return true;
+      if (node.attrs.insertId !== markerId) return true;
+      tr.setNodeMarkup(pos, null, {
+        ...node.attrs,
+        insertId:        null,
+        insertParentSeq: null,
+        insertIe:        null,
+        insertTime:      null,
+        insertLoc:       null,
+      });
+      changed = true;
+    });
+    if (changed) _view.dispatch(tr);
+  },
+
+  /**
+   * 현재 커서/선택이 포함된 최상위 p 요소를 반환.
+   * PM 구조: #scriptEditor > .ProseMirror > p
+   */
+  getTopLevelPara() {
+    if (!_view) return null;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    let node = sel.getRangeAt(0).commonAncestorContainer;
+    if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+    const pmRoot = _view.dom; // .ProseMirror
+    while (node && node !== pmRoot) {
+      if (node.tagName === 'P' && node.parentElement === pmRoot) return node;
+      node = node.parentElement;
+    }
+    return null;
   },
 
   /**

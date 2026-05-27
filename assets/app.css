@@ -1296,7 +1296,7 @@ kbd {
 .bd-chip.prop-link { cursor:pointer; transition:opacity .12s; }
 .bd-chip.prop-link:hover { opacity:.7; }
 /* confirm 모달 */
-.confirm-modal-overlay { display: none; position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,.65); align-items: center; justify-content: center; }
+.confirm-modal-overlay { display: none; position: fixed; inset: 0; z-index: 9000; background: rgba(0,0,0,.65); align-items: center; justify-content: center; }
 .confirm-modal-overlay.open { display: flex; }
 .confirm-modal { background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; padding: 24px 26px; width: 300px; position: relative; }
 /* 인서트씬 등록 모달 */
@@ -1603,10 +1603,20 @@ kbd {
 .char-emoji-picker {
   background: var(--surface); border: 1px solid var(--border2);
   border-radius: 12px; padding: 10px;
-  box-shadow: 0 8px 32px rgba(0,0,0,.35);
-  z-index: 9999; width: 232px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.45);
+  z-index: 9999; width: 292px;
   display: flex; flex-wrap: wrap; gap: 2px;
+  max-height: 380px; overflow-y: auto;
 }
+.char-emoji-picker::-webkit-scrollbar { width: 4px; }
+.char-emoji-picker::-webkit-scrollbar-track { background: transparent; }
+.char-emoji-picker::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.char-emoji-section-label {
+  width: 100%; font-size: 10px; color: var(--text-dim); letter-spacing: .04em;
+  padding: 5px 2px 2px; border-top: 1px solid var(--border);
+  margin-top: 4px; text-transform: uppercase;
+}
+.char-emoji-section-label:first-child { border-top: none; margin-top: 0; padding-top: 0; }
 .char-emoji-opt {
   font-size: 22px; width: 36px; height: 36px;
   display: flex; align-items: center; justify-content: center;
@@ -2408,6 +2418,9 @@ kbd {
 .chip { display: flex; align-items: center; gap: 3px; background: var(--surface2); border: 1px solid var(--border2); border-radius: 4px; padding: 3px 5px; font-size: 11px; margin-bottom: 3px; cursor: grab; user-select: none; transition: background .12s, outline .1s; }
 .chip:hover { background: var(--surface3); }
 .chip.selected { outline: 2px solid var(--accent); outline-offset: 1px; background: var(--accent-glow); }
+.chip-insert { border-color: #fb923c55; background: rgba(251,146,60,.08); }
+.chip-insert:hover { background: rgba(251,146,60,.14); }
+.chip-insert.selected { outline-color: #fb923c; background: rgba(251,146,60,.18); }
 .chip-x { color: var(--text-dim); cursor: pointer; margin-left: auto; flex-shrink: 0; padding: 0 2px; }
 .chip-x:hover { color: #f87171; }
 .drop-line { height: 2px; background: var(--accent); border-radius: 1px; margin: 1px 0; pointer-events: none; }

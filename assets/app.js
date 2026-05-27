@@ -3,7 +3,8 @@
 // ══════════════════════════════════════════════════
 // 상수
 // ══════════════════════════════════════════════════
-const VERSION_MAX = 20;   // 프로젝트당 보관 버전 최대 개수
+const VERSION_MAX      = 10;  // 프로젝트당 보관 버전 최대 개수
+const VERSION_SAVE_INTERVAL = 20; // N번 저장마다 버전 스냅샷 생성
 
 const LINE_TYPES = {
   heading:  { cls:'l-heading',  label:'씬 헤딩' },
@@ -314,6 +315,10 @@ async function deleteAccount() {
 }
 
 // ── 로그아웃 ─────────────────────────────────────
+function confirmLogout() {
+  showConfirmModal('로그아웃 하시겠습니까?', logout);
+}
+
 async function logout() {
   await presenceLeave().catch(() => {});
 
@@ -601,7 +606,7 @@ async function fsStoreSaveVersion(name, data) {
 async function fsStoreListVersions() {
   if (!_currentProjectId) return [];
   const snap = await db.collection('projects').doc(_currentProjectId).collection('versions')
-    .orderBy('createdAt', 'desc').limit(20).get();
+    .orderBy('createdAt', 'desc').limit(VERSION_MAX).get();
   return snap.docs.map(d => ({ id: d.id, name: d.data().name }));
 }
 
@@ -968,6 +973,10 @@ let costumeSort       = 'default'; // 'default'|'char'|'category'|'status'
 let pageNumberStyle   = null;     // null | 'single' | 'total'
 let _pendingInsertRange = null;   // 인서트씬 등록 모달 대기 중 Range
 let _pendingInsertMarkerId = null; // 모달 열기 전 삽입된 span 추적 ID
+
+// insertId → 인서트씬 sceneNum 매핑 (parseFromEditor 실행 시 갱신)
+// PM 재렌더로 data-scene-num 이 지워져도 올바른 씬 번호를 찾을 수 있도록
+let _insertIdToSceneNum = {}; // { 'parentSeq:insertId': '1_ins1', ... }
 
 const ensureArray = v => Array.isArray(v) ? v : [];
 function normalizeListState() {
@@ -1688,6 +1697,8 @@ function parseFromEditor() {
   ed().querySelectorAll('span.elem-insert').forEach(sp => {
     delete sp.dataset.sceneNum; delete sp.dataset.parentSceneNum;
   });
+  // 인서트 매핑 초기화
+  _insertIdToSceneNum = {};
 
   paras.forEach(p => {
     const text = p.textContent.trim();
@@ -1708,6 +1719,8 @@ function parseFromEditor() {
       }
       p.dataset.sceneNum = insertGroupSeqMap[groupKey];
       p.dataset.parentSceneNum = String(parentSeq);
+      // 전역 매핑 갱신 — PM 재렌더 후에도 insertId로 씬 번호 조회 가능
+      _insertIdToSceneNum[insertId] = insertGroupSeqMap[groupKey];
       lines.push({
         type: 'insertLine',
         originalType: type,
@@ -2323,13 +2336,20 @@ function openGuideFromWelcome() {
 let frMatches    = [];   // [{para, start, end}]
 let frCurrentIdx = -1;
 
+function toggleFindReplace() {
+  const fp = document.getElementById('frPanel');
+  if (fp.classList.contains('open')) closeFindReplace();
+  else openFindReplace();
+}
 function openFindReplace() {
   document.getElementById('frPanel').classList.add('open');
+  document.getElementById('findReplaceToggleBtn')?.classList.add('on');
   document.getElementById('frFind').select();
   document.getElementById('frFind').focus();
 }
 function closeFindReplace() {
   document.getElementById('frPanel').classList.remove('open');
+  document.getElementById('findReplaceToggleBtn')?.classList.remove('on');
   frClearHighlights();
   frMatches = []; frCurrentIdx = -1;
   document.getElementById('frCount').textContent = '';
@@ -2703,10 +2723,21 @@ function removeManualChar(sceneNum, name) {
 // ── 인서트 씬 추가 (스팬 방식) ──────────────────────────────────
 function getTopLevelEditorPara(node) {
   if (!node) return null;
-  if (node === ed()) return null;
+  const edEl = ed();
+  if (!edEl) return null;
+  if (node === edEl) return null;
   if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
-  while (node && node.parentElement !== ed()) node = node.parentElement;
-  return node?.tagName === 'P' ? node : null;
+  // PM 구조: #scriptEditor > .ProseMirror > p
+  // contentEditable 폴백 구조: #scriptEditor > p
+  while (node && node !== edEl) {
+    if (node.tagName === 'P') {
+      const par = node.parentElement;
+      // p의 부모가 edEl 이거나, edEl 바로 아래 자식(.ProseMirror)인 경우
+      if (par === edEl || par?.parentElement === edEl) return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
 }
 
 function getSelectedEditorParas(range) {
@@ -2726,6 +2757,7 @@ function addInsertToSelection(btn) {
   if (currentP?.dataset.insertId) {
     const insertId = currentP.dataset.insertId;
     pushUndo();
+    // sceneExtras / sched 등 부가 데이터 먼저 정리
     ed().querySelectorAll(`p[data-insert-id="${insertId}"]`).forEach(p => {
       const snum = p.dataset.sceneNum;
       if (snum) {
@@ -2735,13 +2767,20 @@ function addInsertToSelection(btn) {
           sched[date] = (sched[date] || []).filter(n => String(n) !== String(snum));
         });
       }
-      delete p.dataset.insertId;
-      delete p.dataset.insertContent;
-      delete p.dataset.insertIe;
-      delete p.dataset.insertTime;
-      delete p.dataset.insertLoc;
-      delete p.dataset.insertParentSeq;
     });
+    // PM 트랜잭션으로 insert attrs 제거
+    if (window.DPEditor?.isReady()) {
+      window.DPEditor.clearInsertGroup(insertId);
+    } else {
+      ed().querySelectorAll(`p[data-insert-id="${insertId}"]`).forEach(p => {
+        delete p.dataset.insertId;
+        delete p.dataset.insertContent;
+        delete p.dataset.insertIe;
+        delete p.dataset.insertTime;
+        delete p.dataset.insertLoc;
+        delete p.dataset.insertParentSeq;
+      });
+    }
     sel.removeAllRanges();
     flashBtn(btn);
     onEditorInput();
@@ -2777,10 +2816,16 @@ function addInsertToSelection(btn) {
   // ── 선택된 여러 줄을 하나의 인서트 씬 그룹으로 표시 ──────────────
   pushUndo();
   const markerId = 'ins-m-' + Date.now();
-  selectedParas.forEach(p => {
-    p.dataset.insertId = markerId;
-    if (parentSeq) p.dataset.insertParentSeq = String(parentSeq);
-  });
+
+  // PM 트랜잭션으로 insert attrs 세팅 (DOM 직접 조작 시 Yjs 재렌더 후 소멸 문제 방지)
+  if (window.DPEditor?.isReady()) {
+    window.DPEditor.markSelectionAsInsert(markerId, parentSeq);
+  } else {
+    selectedParas.forEach(p => {
+      p.dataset.insertId = markerId;
+      if (parentSeq) p.dataset.insertParentSeq = String(parentSeq);
+    });
+  }
   sel.removeAllRanges();
   _pendingInsertMarkerId = markerId;
 
@@ -2813,22 +2858,28 @@ function getSelectionElemType() {
 function closeInsModal() {
   document.getElementById('insModal').classList.remove('open');
   _pendingInsertRange = null;
-  // 취소 시 — 이미 삽입된 span을 되돌리기 (unwrap)
+  // 취소 시 — 마킹을 되돌리기
   if (_pendingInsertMarkerId) {
-    ed().querySelectorAll(`p[data-insert-id="${_pendingInsertMarkerId}"]`).forEach(p => {
-      const snum = p.dataset.sceneNum;
-      if (snum) {
-        delete sceneExtras[snum];
-        delete sceneNotes[snum];
-      }
-      delete p.dataset.insertId;
-      delete p.dataset.insertContent;
-      delete p.dataset.insertIe;
-      delete p.dataset.insertTime;
-      delete p.dataset.insertLoc;
-      delete p.dataset.insertParentSeq;
-    });
+    const mid = _pendingInsertMarkerId;
     _pendingInsertMarkerId = null;
+    // sceneExtras 정리
+    ed().querySelectorAll(`p[data-insert-id="${mid}"]`).forEach(p => {
+      const snum = p.dataset.sceneNum;
+      if (snum) { delete sceneExtras[snum]; delete sceneNotes[snum]; }
+    });
+    // PM 트랜잭션으로 attrs 제거
+    if (window.DPEditor?.isReady()) {
+      window.DPEditor.clearInsertGroup(mid);
+    } else {
+      ed().querySelectorAll(`p[data-insert-id="${mid}"]`).forEach(p => {
+        delete p.dataset.insertId;
+        delete p.dataset.insertContent;
+        delete p.dataset.insertIe;
+        delete p.dataset.insertTime;
+        delete p.dataset.insertLoc;
+        delete p.dataset.insertParentSeq;
+      });
+    }
     onEditorInput();
   }
 }
@@ -2844,17 +2895,30 @@ function confirmInsertScene() {
   _pendingInsertRange    = null;
   document.getElementById('insModal').classList.remove('open');
 
+  // 마킹된 그룹에서 parentSeq 읽기 (DOM attr — PM이 이미 렌더링 완료)
   const markedGroup = [...ed().querySelectorAll(`p[data-insert-id="${markerId}"]`)];
   const parentSeq = markedGroup[0]?.dataset.insertParentSeq || null;
   const parentScene = scenes.find(s => String(s.number) === String(parentSeq));
   const ie = parentScene?.ie || 'INT';
   const dn = parentScene?.time || 'day';
-  markedGroup.forEach(p => {
-    delete p.dataset.insertContent;
-    p.dataset.insertIe = ie;
-    p.dataset.insertTime = dn;
-    p.dataset.insertLoc = loc;
-  });
+
+  // PM 트랜잭션으로 insert attrs 갱신 (DOM 직접 조작 금지)
+  if (window.DPEditor?.isReady()) {
+    window.DPEditor.updateInsertGroup(markerId, {
+      insertIe:   ie,
+      insertTime: dn,
+      insertLoc:  loc,
+      // insertContent 제거 (null로 덮어씀)
+      insertId:   markerId, // 유지
+    });
+  } else {
+    markedGroup.forEach(p => {
+      delete p.dataset.insertContent;
+      p.dataset.insertIe   = ie;
+      p.dataset.insertTime = dn;
+      p.dataset.insertLoc  = loc;
+    });
+  }
 
   // 2) 파싱 실행 → 인서트 그룹 단락에 dataset.sceneNum 채워짐
   onEditorInput();
@@ -2899,6 +2963,15 @@ document.addEventListener('selectionchange', refreshElemTagUI);
 function _getSnumFromNode(node) {
   const para = getTopLevelEditorPara(node);
   if (!para) return null;
+
+  // 인서트 씬 단락 우선 처리
+  if (para.dataset.insertId) {
+    const snum = para.dataset.sceneNum || _insertIdToSceneNum[para.dataset.insertId];
+    if (snum) {
+      const sc = scenes.find(s => String(s.number) === String(snum));
+      return sc ? sc.number : snum;
+    }
+  }
   if (para.dataset.sceneNum) {
     const sc = scenes.find(s => String(s.number) === String(para.dataset.sceneNum));
     if (sc) return sc.number;
@@ -2907,6 +2980,14 @@ function _getSnumFromNode(node) {
   const idx = paras.indexOf(para);
   if (idx < 0) return null;
   for (let i = idx; i >= 0; i--) {
+    // 인서트 씬 단락
+    if (paras[i].dataset.insertId) {
+      const snum = paras[i].dataset.sceneNum || _insertIdToSceneNum[paras[i].dataset.insertId];
+      if (snum) {
+        const sc = scenes.find(s => String(s.number) === String(snum));
+        return sc ? sc.number : snum;
+      }
+    }
     const t = paras[i].dataset.type || guessType(paras[i].textContent);
     if (t === 'heading' || t === 'insert') {
       const scnum = paras[i].dataset.sceneNum;
@@ -3171,9 +3252,13 @@ function getSceneNumFromSelection(sel) {
   node = para;
   if (!node) return null;
 
-  if (node.dataset.insertId && node.dataset.sceneNum) {
-    const sc = scenes.find(s => String(s.number) === String(node.dataset.sceneNum));
-    return sc ? sc.number : node.dataset.sceneNum;
+  // 인서트 씬 단락 우선 처리
+  if (node.dataset.insertId) {
+    const snum = node.dataset.sceneNum || _insertIdToSceneNum[node.dataset.insertId];
+    if (snum) {
+      const sc = scenes.find(s => String(s.number) === String(snum));
+      return sc ? sc.number : snum;
+    }
   }
   if (node.dataset.sceneNum) {
     const sc = scenes.find(s => String(s.number) === String(node.dataset.sceneNum));
@@ -3184,6 +3269,14 @@ function getSceneNumFromSelection(sel) {
   const idx = paras.indexOf(node);
   if (idx < 0) return null;
   for (let i = idx; i >= 0; i--) {
+    // 인서트 씬 단락: _insertIdToSceneNum 로 씬 번호 조회
+    if (paras[i].dataset.insertId) {
+      const snum = paras[i].dataset.sceneNum || _insertIdToSceneNum[paras[i].dataset.insertId];
+      if (snum) {
+        const sc = scenes.find(s => String(s.number) === String(snum));
+        return sc ? sc.number : snum;
+      }
+    }
     const t = paras[i].dataset.type || guessType(paras[i].textContent);
     if (t === 'heading' || t === 'insert') {
       const sceneNum = paras[i].dataset.sceneNum;
@@ -3409,7 +3502,14 @@ function syncElemTagsFromEditor() {
   const paras   = [...ed().querySelectorAll('p')];
   let curSnum   = null;
   for (const p of paras) {
-    if (p.dataset.sceneNum !== undefined) curSnum = p.dataset.sceneNum;
+    // data-scene-num이 직접 설정된 경우 우선 사용,
+    // 인서트 씬 단락은 _insertIdToSceneNum 매핑으로 보완
+    if (p.dataset.sceneNum !== undefined) {
+      curSnum = p.dataset.sceneNum;
+    } else if (p.dataset.insertId) {
+      const mapped = _insertIdToSceneNum[p.dataset.insertId];
+      if (mapped) curSnum = mapped;
+    }
     if (curSnum == null) continue;
     for (const span of p.querySelectorAll('span.elem-tag[data-elem-type]')) {
       const type = span.dataset.elemType;
@@ -3469,17 +3569,34 @@ function removeElemSpanFromEditor(snum, type, text) {
 
   if (window.DPEditor?.isReady()) {
     // PM 모드: 1차 — DOM span 탐색
-    // PM이 re-render할 때 dataset.sceneNum이 지워지므로 heading의 순서 카운팅으로 씬 식별
+    const snumStr = String(snum);
+    const isInsertScene = snumStr.includes('_ins');
     const paras = [...edEl.querySelectorAll('p')];
     let headingCount = 0;
     let inScene = false;
     let foundByDOM = false;
+
+    // 인서트 씬인 경우: _insertIdToSceneNum 역매핑으로 insertId 찾기
+    let insertIdForScene = null;
+    if (isInsertScene) {
+      for (const [iid, sn] of Object.entries(_insertIdToSceneNum)) {
+        if (String(sn) === snumStr) { insertIdForScene = iid; break; }
+      }
+    }
+
     for (const p of paras) {
       const pType = p.dataset.type || guessType(p.textContent);
       if (pType === 'heading') {
         headingCount++;
-        inScene = (headingCount === +snum);
+        if (!isInsertScene) inScene = (headingCount === +snum);
         continue;
+      }
+      // 인서트 씬: insertId 일치 여부로 판단
+      if (isInsertScene) {
+        inScene = insertIdForScene
+          ? (p.dataset.insertId === insertIdForScene)
+          : (String(p.dataset.sceneNum) === snumStr ||
+             _insertIdToSceneNum[p.dataset.insertId] === snumStr);
       }
       if (!inScene) continue;
       for (const span of p.querySelectorAll(`span.elem-${type}`)) {
@@ -3493,7 +3610,7 @@ function removeElemSpanFromEditor(snum, type, text) {
     }
     // 2차 fallback — PM 문서 직접 순회 (DOM에서 못 찾은 엣지케이스 대응)
     if (!foundByDOM) {
-      window.DPEditor.removeElemMarkByText(type, text, snum);
+      window.DPEditor.removeElemMarkByText(type, text, isInsertScene ? null : snum);
     }
     return;
   }
@@ -4674,12 +4791,64 @@ function syncCharActorToCallsheets(charName) {
 }
 
 // ── 인물 이모지 변경 ─────────────────────────────
-const CHAR_EMOJIS = [
-  '👤','🧑','👩','👨','🧒','👧','👦','🧓','👴','👵',
-  '👮','🕵️','💂','🧑‍⚕️','👩‍⚕️','🧑‍🏫','👩‍🍳','🧑‍🎨','👩‍🎤','🧑‍💼',
-  '🥷','🧙','🧛','🧟','🧜','🧝','🤴','👸','🤵','👰',
-  '😀','😎','🥸','😈','👿','🤡','💀','👻','🎭','🎬',
+// { label, emojis[] } 형식으로 카테고리 구분
+const CHAR_EMOJI_GROUPS = [
+  {
+    label: '연령대',
+    emojis: [
+      '👶','🧒','👧','👦','🧑','👩','👨',
+      '🧑‍🦱','👩‍🦱','👨‍🦱','👱','👱‍♀️','👱‍♂️',
+      '🧑‍🦰','👩‍🦰','👨‍🦰','🧑‍🦳','👩‍🦳','👨‍🦳','🧑‍🦲',
+      '🧓','👴','👵','🤰','👩‍🍼',
+    ],
+  },
+  {
+    label: '직업·역할',
+    emojis: [
+      '👮','👮‍♀️','🕵️','🕵️‍♀️','💂','💂‍♀️',
+      '🧑‍⚕️','👩‍⚕️','👨‍⚕️','🧑‍🏫','👩‍🏫','🧑‍🍳','👩‍🍳',
+      '🧑‍🎨','👩‍🎤','🧑‍💼','👩‍💼','🧑‍🔬','👩‍🔬',
+      '🧑‍🚀','👩‍🚒','🧑‍🌾','🧑‍🏭','👷','👷‍♀️',
+    ],
+  },
+  {
+    label: '특수·판타지',
+    emojis: [
+      '🥷','🤺','🧙','🧙‍♀️','🧛','🧛‍♀️','🧟','🧟‍♀️',
+      '🧜','🧜‍♀️','🧝','🧝‍♀️','🤴','👸','🤵','👰',
+      '🦸','🦸‍♀️','🦹','🦹‍♀️','🎅','🤶','🧞','🧞‍♀️',
+    ],
+  },
+  {
+    label: '표정·감정',
+    emojis: [
+      '😀','😎','🥸','🤠','🤓','🧐','😈','👿','🤡','💀','👻','🎭',
+    ],
+  },
+  {
+    label: '동물 — 포유류',
+    emojis: [
+      '🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯',
+      '🦁','🐮','🐷','🐸','🐵','🙈','🦝','🐺','🦌','🦄',
+      '🐗','🦍','🦧','🐘','🦏','🦛','🦒','🦓','🐪','🦬',
+    ],
+  },
+  {
+    label: '동물 — 조류',
+    emojis: [
+      '🐔','🐧','🦅','🦆','🦉','🦜','🐦','🦢','🦩','🕊️','🦚','🦃',
+    ],
+  },
+  {
+    label: '동물 — 해양·파충류·기타',
+    emojis: [
+      '🐬','🐳','🦈','🐙','🦭','🐠','🦀','🦑','🐢','🦎',
+      '🐍','🦕','🐲','🐉','🦋','🐝','🐛','🦗','🦟','🕷️',
+    ],
+  },
 ];
+// 하위 호환용 flat 배열 (외부에서 참조 가능)
+const CHAR_EMOJIS = CHAR_EMOJI_GROUPS.flatMap(g => g.emojis);
 
 function openCharEmojiPicker(name, anchorEl) {
   // 기존 피커 닫기
@@ -4688,16 +4857,28 @@ function openCharEmojiPicker(name, anchorEl) {
   const picker = document.createElement('div');
   picker.id = 'charEmojiPicker';
   picker.className = 'char-emoji-picker';
-  picker.innerHTML = CHAR_EMOJIS.map(e =>
-    `<span class="char-emoji-opt" onclick="setCharEmoji('${esc(name)}','${e}')">${e}</span>`
+
+  // 카테고리별 렌더링
+  picker.innerHTML = CHAR_EMOJI_GROUPS.map(group =>
+    `<div class="char-emoji-section-label">${esc(group.label)}</div>` +
+    group.emojis.map(e =>
+      `<span class="char-emoji-opt" onclick="setCharEmoji('${esc(name)}','${e}')">${e}</span>`
+    ).join('')
   ).join('') +
   `<div class="char-emoji-reset" onclick="setCharEmoji('${esc(name)}','')">기본값으로</div>`;
 
-  // 위치: 카드 아래쪽
+  // 위치: 앵커 아래쪽, 화면 밖으로 나가지 않도록 보정
   const rect = anchorEl.getBoundingClientRect();
-  picker.style.cssText = `position:fixed;top:${rect.bottom+6}px;left:${rect.left}px`;
-
+  picker.style.cssText = `position:fixed;top:${rect.bottom+6}px;left:${rect.left}px;visibility:hidden`;
   document.body.appendChild(picker);
+
+  // 화면 경계 보정 (렌더 후 크기 계산)
+  const pw = picker.offsetWidth, ph = picker.offsetHeight;
+  let top  = rect.bottom + 6, left = rect.left;
+  if (left + pw > window.innerWidth - 8)  left  = Math.max(8, window.innerWidth - pw - 8);
+  if (top  + ph > window.innerHeight - 8) top   = Math.max(8, rect.top - ph - 6);
+  picker.style.cssText = `position:fixed;top:${top}px;left:${left}px`;
+
   // 바깥 클릭 시 닫기
   setTimeout(() => {
     document.addEventListener('click', function close(e) {
@@ -4798,7 +4979,7 @@ function renderCalendar() {
   for(let d=1;d<=last.getDate();d++){
     const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const isT=ds===today;
-    const dayScenes=(sched[ds]||[]).map(n=>scenes.find(s=>s.number===n)).filter(Boolean);
+    const dayScenes=(sched[ds]||[]).map(n=>scenes.find(s=>String(s.number)===String(n))).filter(Boolean);
     html+=`<div class="cal-cell${isT?' today-cell':''}" data-date="${ds}"
       ondragover="calDragOver(event,'${ds}')"
       ondragleave="calDragLeave(event)"
@@ -4823,18 +5004,28 @@ function renderCalendar() {
   document.getElementById('calGrid').innerHTML=html;
 }
 
+// 씬 번호를 HTML onclick 속성에 안전하게 삽입하는 헬퍼
+// 숫자 → 그대로, 문자열("1_ins1") → 작은따옴표 감쌈 (큰따옴표 속성 충돌 방지)
+function _snAttr(num) {
+  return typeof num === 'number' ? num : `'${num}'`;
+}
+
 function chipHTML(s, dateStr) {
-  const sel=selectedNums.has(s.number)?' selected':'';
-  return `<div class="chip${sel}" data-num="${s.number}" data-date="${dateStr}"
+  const sel = selectedNums.has(s.number) ? ' selected' : '';
+  const sn  = _snAttr(s.number);
+  const label = s.isInsert
+    ? `INS · ${esc(s.loc)}`
+    : `S#${esc(s.displayNum || s.number)}`;
+  return `<div class="chip${sel}${s.isInsert?' chip-insert':''}" data-num="${s.number}" data-date="${dateStr}"
     draggable="true"
-    onclick="chipClick(event,${s.number})"
-    ondragstart="chipDragStart(event,${s.number},'${dateStr}')"
+    onclick="chipClick(event,${sn})"
+    ondragstart="chipDragStart(event,${sn},'${dateStr}')"
     style="flex-wrap:wrap;gap:2px">
-    <span style="font-weight:700">S#${s.displayNum || s.number}</span>
+    <span style="font-weight:700">${label}</span>
     <span class="badge ${ieBadge(s.ie)}" style="font-size:9px;padding:1px 4px">${s.ie}</span>
-    <span style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(s.loc)}</span>
+    ${!s.isInsert ? `<span style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(s.loc)}</span>` : ''}
     ${s.time?`<span class="badge ${timeBadge(s.time)}" style="font-size:9px;padding:1px 4px">${TIME_LABEL[s.time]||''}</span>`:''}
-    <span class="chip-x" onclick="event.stopPropagation();removeFromSched(${s.number},'${dateStr}')">✕</span>
+    <span class="chip-x" onclick="event.stopPropagation();removeFromSched(${sn},'${dateStr}')">✕</span>
   </div>`;
 }
 
@@ -4846,17 +5037,23 @@ function renderUnsched() {
     el.innerHTML=`<div class="empty" style="height:70px"><div>✅</div><div>모두 배치됨</div></div>`;
     return;
   }
-  el.innerHTML=list.map(s=>`
-    <div class="chip${selectedNums.has(s.number)?' selected':''}" data-num="${s.number}"
+  el.innerHTML=list.map(s=>{
+    const sn    = _snAttr(s.number);
+    const label = s.isInsert
+      ? `INS · ${esc(s.loc)}`
+      : `S#${esc(s.displayNum || s.number)}`;
+    return `
+    <div class="chip${selectedNums.has(s.number)?' selected':''}${s.isInsert?' chip-insert':''}" data-num="${s.number}"
       draggable="true"
-      onclick="chipClick(event,${s.number})"
-      ondragstart="chipDragStart(event,${s.number},null)"
+      onclick="chipClick(event,${sn})"
+      ondragstart="chipDragStart(event,${sn},null)"
       style="margin-bottom:5px;flex-wrap:wrap;gap:2px">
-      <span style="font-weight:700">S#${s.displayNum || s.number}</span>
+      <span style="font-weight:700">${label}</span>
       <span class="badge ${ieBadge(s.ie)}" style="font-size:9px;padding:1px 4px">${s.ie}</span>
-      <span style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(s.loc)}</span>
+      ${!s.isInsert?`<span style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(s.loc)}</span>`:''}
       ${s.time?`<span class="badge ${timeBadge(s.time)}" style="font-size:9px;padding:1px 4px">${TIME_LABEL[s.time]||''}</span>`:''}
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function chipClick(e, num) {
@@ -4898,18 +5095,18 @@ function calDrop(e, dateStr) {
       const oldCS = callSheets.find(c => c.csNum === oldCsNum);
       if (oldCS) {
         nums.forEach(n => {
-          const s = scenes.find(x => x.number === n);
+          const s = scenes.find(x => String(x.number) === String(n));
           if (s) oldCS.rows = oldCS.rows.filter(r => r.sNum !== s.displayNum);
         });
       }
     }
   }
 
-  for(const [d,arr] of Object.entries(sched)) sched[d]=arr.filter(n=>!nums.includes(n));
+  const numsStr = new Set(nums.map(String));
+  for(const [d,arr] of Object.entries(sched)) sched[d]=arr.filter(n=>!numsStr.has(String(n)));
   if(!sched[dateStr]) sched[dateStr]=[];
-  sched[dateStr]=sched[dateStr].filter(n=>!nums.includes(n));
   sched[dateStr].splice(insertIdx,0,...nums);
-  nums.forEach(n=>{ const s=scenes.find(x=>x.number===n); if(s) s.schedDate=dateStr; });
+  nums.forEach(n=>{ const s=scenes.find(x=>String(x.number)===String(n)); if(s) s.schedDate=dateStr; });
 
   // 드롭된 날짜의 회차 일촬표에 씬 자동 추가
   const newCsNum = schedDays[dateStr];
@@ -4917,7 +5114,7 @@ function calDrop(e, dateStr) {
     const newCS = callSheets.find(c => c.csNum === newCsNum);
     if (newCS) {
       nums.forEach(n => {
-        const s = scenes.find(x => x.number === n);
+        const s = scenes.find(x => String(x.number) === String(n));
         if (!s) return;
         if (!newCS.rows.some(r => r.sNum === s.displayNum)) {
           newCS.rows.push({
@@ -4935,17 +5132,19 @@ function calDrop(e, dateStr) {
 }
 
 function getInsertIndex(cell, y, dateStr, excludeNums) {
-  const chips=[...cell.querySelectorAll('.chip')].filter(c=>!excludeNums.includes(parseInt(c.dataset.num)));
-  for(let i=0;i<chips.length;i++){
-    const rect=chips[i].getBoundingClientRect();
-    if(y<rect.top+rect.height/2){
-      const n=parseInt(chips[i].dataset.num);
-      const arr=sched[dateStr]||[];
-      const idx=arr.indexOf(n);
-      return idx>=0?idx:i;
+  // dataset.num은 숫자("1") 또는 인서트씬 문자열("1_ins1") 모두 가능 — String 비교로 통일
+  const exSet = new Set(excludeNums.map(String));
+  const chips = [...cell.querySelectorAll('.chip')].filter(c => !exSet.has(c.dataset.num));
+  for (let i = 0; i < chips.length; i++) {
+    const rect = chips[i].getBoundingClientRect();
+    if (y < rect.top + rect.height / 2) {
+      const chipNum = chips[i].dataset.num; // 문자열 그대로 사용
+      const arr = sched[dateStr] || [];
+      const idx = arr.findIndex(n => String(n) === chipNum);
+      return idx >= 0 ? idx : i;
     }
   }
-  return (sched[dateStr]||[]).filter(n=>!excludeNums.includes(n)).length;
+  return (sched[dateStr] || []).filter(n => !exSet.has(String(n))).length;
 }
 
 function showDropLine(cell, y) {
@@ -4981,8 +5180,9 @@ function dropToUnsched(e) {
       }
     }
   }
-  for(const [d,arr] of Object.entries(sched)) sched[d]=arr.filter(n=>!nums.includes(n));
-  nums.forEach(n=>{ const s=scenes.find(x=>x.number===n); if(s) s.schedDate=null; });
+  const numsStr2 = new Set(nums.map(String));
+  for(const [d,arr] of Object.entries(sched)) sched[d]=arr.filter(n=>!numsStr2.has(String(n)));
+  nums.forEach(n=>{ const s=scenes.find(x=>String(x.number)===String(n)); if(s) s.schedDate=null; });
   dragging=null; selectedNums.clear();
   save(); renderCalendar(); renderUnsched();
 }
@@ -5094,8 +5294,8 @@ function ensureCallSheet(csNum, date) {
 }
 
 function removeFromSched(num, dateStr) {
-  if(sched[dateStr]) sched[dateStr]=sched[dateStr].filter(n=>n!==num);
-  const s=scenes.find(x=>x.number===num);
+  if(sched[dateStr]) sched[dateStr]=sched[dateStr].filter(n=>String(n)!==String(num));
+  const s=scenes.find(x=>String(x.number)===String(num));
   if(s) {
     // 해당 날짜 회차 일촬표에서도 제거
     const csNum = schedDays[dateStr];
@@ -7870,7 +8070,7 @@ async function doSave() {
     return;
   }
   const cnt = _incSaveCount();
-  if (cnt % 10 === 0) saveVersionSnapshot(data).catch(e => console.warn('버전 저장 오류:', e));
+  if (cnt % VERSION_SAVE_INTERVAL === 0) saveVersionSnapshot(data).catch(e => console.warn('버전 저장 오류:', e));
 }
 
 // ── 최근 프로젝트 관리 ──────────────────────────
@@ -8049,7 +8249,7 @@ async function renderVersionHistory() {
   el.innerHTML = '<div class="stg-version-empty">불러오는 중...</div>';
   const list = await loadVersionList();
   if (!list.length) {
-    el.innerHTML = '<div class="stg-version-empty">저장된 버전이 없습니다. (10번 저장마다 자동 생성)</div>';
+    el.innerHTML = `<div class="stg-version-empty">저장된 버전이 없습니다. (${VERSION_SAVE_INTERVAL}번 저장마다 자동 생성, 최대 ${VERSION_MAX}개 유지)</div>`;
     return;
   }
   el.innerHTML = list.map((item) => {
@@ -8175,10 +8375,23 @@ async function confirmNewProject() {
 
 // load()에서 Drive 데이터 적용 시 공통 함수
 async function applyLoadedData(d) {
+  // 이전 Yjs 연결 먼저 해제 — setContent 중 _ytype이 남아 있으면
+  // Y.XmlFragment가 비워지고 PM 상태가 오염되는 버그 방지
+  window.DPEditor?.disconnect();
   _suppressSave = true;
   _deletionLog.clear(); // 새 프로젝트 로드 시 삭제 로그 초기화
-  if (d.sched)         sched              = d.sched;
-  if (d.schedDays)     schedDays          = d.schedDays;
+  // 촬영 스케줄 — 항상 복원 (빈 값도 반영)
+  sched      = d.sched      || {};
+  schedDays  = d.schedDays  || {};
+  // 일촬표 복원 — 누락 시 새로고침 후 사라지는 버그 방지
+  callSheets = d.callSheets || [];
+  if (d.lastCSNum != null && callSheets.length) {
+    const idx = callSheets.findIndex(c => c.csNum === d.lastCSNum);
+    currentCSIdx = idx >= 0 ? idx : 0;
+  } else {
+    currentCSIdx = 0;
+  }
+
   if (d.charNotes)     charNotes          = d.charNotes;
   if (d.charInfo)      charInfo           = d.charInfo;
   if (d.manualChars)   manualCharsByScene = d.manualChars;
@@ -8222,8 +8435,9 @@ async function applyLoadedData(d) {
     syncAllCostumesFromBreakdown();
     scenes.forEach(s => {
       s.schedDate = null;
+      const sn = String(s.number);
       for (const [date, nums] of Object.entries(sched))
-        if (nums.includes(s.number)) { s.schedDate = date; break; }
+        if (nums.some(n => String(n) === sn)) { s.schedDate = date; break; }
     });
     renderSidebar();
   }
@@ -9317,7 +9531,9 @@ function closeMobileSidebar() {
   document.addEventListener('touchstart', e => {
     const chip = e.target.closest('.chip');
     if (!chip) return;
-    const num = +chip.dataset.num;
+    // dataset.num은 일반 씬(숫자)과 인서트씬(문자열 "1_ins1") 둘 다 올 수 있음
+    const rawNum = chip.dataset.num;
+    const num = isNaN(rawNum) || rawNum === '' ? rawNum : +rawNum;
     const fromDate = chip.dataset.date || null;
     if (!selectedNums.has(num)) { selectedNums.clear(); selectedNums.add(num); }
     dragging = { nums: [...selectedNums], fromDate };
@@ -9360,24 +9576,24 @@ function closeMobileSidebar() {
   function calDropTouch(dateStr) {
     if (!dragging) return;
     const { nums, fromDate } = dragging;
+    const numsStr = new Set(nums.map(String));
     // 기존 날짜에서 제거
     if (fromDate && fromDate !== dateStr) {
       const oldCS = callSheets.find(c => c.csNum === schedDays[fromDate]);
       if (oldCS) nums.forEach(n => {
-        const s = scenes.find(x => x.number === n);
+        const s = scenes.find(x => String(x.number) === String(n));
         if (s) oldCS.rows = oldCS.rows.filter(r => r.sNum !== s.displayNum);
       });
     }
-    for (const [d, arr] of Object.entries(sched)) sched[d] = arr.filter(n => !nums.includes(n));
+    for (const [d, arr] of Object.entries(sched)) sched[d] = arr.filter(n => !numsStr.has(String(n)));
     if (!sched[dateStr]) sched[dateStr] = [];
-    sched[dateStr] = sched[dateStr].filter(n => !nums.includes(n));
     sched[dateStr].push(...nums);
-    nums.forEach(n => { const s = scenes.find(x => x.number === n); if (s) s.schedDate = dateStr; });
+    nums.forEach(n => { const s = scenes.find(x => String(x.number) === String(n)); if (s) s.schedDate = dateStr; });
     // 일촬표에 추가
     const newCS = callSheets.find(c => c.csNum === schedDays[dateStr]);
     if (newCS) {
       nums.forEach(n => {
-        const s = scenes.find(x => x.number === n); if (!s) return;
+        const s = scenes.find(x => String(x.number) === String(n)); if (!s) return;
         if (!newCS.rows.some(r => r.sNum === s.displayNum))
           newCS.rows.push({
             sNum: s.displayNum, place: s.loc, shootLoc: '', dn: toDN(s.time),
