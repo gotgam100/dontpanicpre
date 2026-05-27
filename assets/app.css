@@ -1929,6 +1929,22 @@ kbd {
 }
 .chat-toggle-btn:hover { background: var(--surface2); color: var(--text); }
 .chat-toggle-btn.active { background: var(--surface2); color: var(--accent); }
+/* 헤더 구분선 + 테마 토글 버튼 */
+.header-sep {
+  width: 1px; height: 18px;
+  background: var(--border2);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+.header-theme-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 8px; border: none;
+  background: transparent; color: var(--text-dim);
+  cursor: pointer; font-size: 16px; line-height: 1;
+  transition: background .15s, color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.header-theme-btn:hover { background: var(--surface2); }
 .chat-badge {
   position: absolute; top: 2px; right: 2px;
   min-width: 14px; height: 14px; border-radius: 7px;
