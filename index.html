@@ -623,8 +623,6 @@
         <div class="mobile-drawer-sep"></div>
         <button class="mobile-drawer-item" onclick="backupProject();closeMobileNav()"><i data-lucide="download"></i> 백업</button>
         <label class="mobile-drawer-item" style="cursor:pointer"><i data-lucide="folder-open"></i> 불러오기<input type="file" accept=".json" style="display:none" onchange="restoreProject(this);closeMobileNav()"></label>
-        <div class="mobile-drawer-sep"></div>
-        <button class="mobile-drawer-item" id="themeToggleBtn" onclick="toggleTheme()">☀️ 라이트 모드</button>
       </nav>
 
       <main class="main">
@@ -729,8 +727,8 @@
           <!-- 모바일 사이드바 FAB -->
           <button class="sidebar-toggle-fab" onclick="toggleMobileSidebar()" title="씬 목록">≡</button>
           <aside class="scene-sidebar">
-            <div class="sidebar-title">🎬 씬 브레이크다운
-              <button class="sidebar-mobile-close" onclick="closeMobileSidebar()" title="스크립트로 돌아가기">✕ 스크립트</button>
+            <div class="sidebar-title"><i data-lucide="clapperboard"></i> 씬 브레이크다운
+              <button class="sidebar-mobile-close" onclick="closeMobileSidebar()" title="스크립트로 돌아가기"><i data-lucide="x"></i> 스크립트</button>
             </div>
             <div class="scene-list" id="sidebarList">
               <div class="empty" style="height:140px">
@@ -745,7 +743,7 @@
         <section class="tab" id="tab-breakdown">
           <div class="stats-bar" id="statsBar"></div>
           <div class="filter-bar">
-            <span class="tab-bar-title">🎬 씬리스트</span>
+            <span class="tab-bar-title"><i data-lucide="film"></i> 씬리스트</span>
             <span class="tab-bar-divider"></span>
             <span class="filter-label">필터</span>
             <button class="f-btn on" onclick="setFilter('all',this)">전체</button>
@@ -767,7 +765,7 @@
         <section class="tab" id="tab-loclist">
           <div class="stats-bar" id="locStatsBar"></div>
           <div class="filter-bar">
-            <span class="tab-bar-title">📍 장소리스트</span>
+            <span class="tab-bar-title"><i data-lucide="map-pin"></i> 장소리스트</span>
             <span class="tab-bar-divider"></span>
             <span style="font-size:11px;color:var(--text-dim)">씬 헤딩의 장소와 +장소로 등록한 장소가 자동으로 표시됩니다</span>
             <button class="sbd-print-btn" onclick="printLocList()" style="margin-left:auto">🖨 PDF 출력</button>
@@ -796,7 +794,7 @@
         <!-- ═══ 소품리스트 탭 ═══ -->
         <section class="tab" id="tab-proplist">
           <div class="prop-toolbar">
-            <span class="prop-toolbar-title">🎭 소품리스트</span>
+            <span class="prop-toolbar-title"><i data-lucide="briefcase"></i> 소품리스트</span>
             <span class="prop-hint">씬브레이크다운에 등록된 소품이 자동 표시됩니다 · 직접 추가도 가능합니다</span>
             <button class="sbd-print-btn" onclick="printPropList()" style="margin-left:auto">🖨 PDF 출력</button>
           </div>
@@ -811,7 +809,7 @@
         <!-- ═══ 의상/분장 리스트 탭 ═══ -->
         <section class="tab" id="tab-costumelist">
           <div class="prop-toolbar">
-            <span class="prop-toolbar-title">👗 의상/분장 리스트</span>
+            <span class="prop-toolbar-title"><i data-lucide="shirt"></i> 의상/분장 리스트</span>
             <span class="prop-hint">씬브레이크다운에 등록된 의상/분장이 자동 표시됩니다 · 직접 추가도 가능합니다</span>
             <button class="sbd-print-btn" onclick="printCostumeList()" style="margin-left:auto">🖨 PDF 출력</button>
           </div>
@@ -857,7 +855,7 @@
         <!-- ═══ 스태프 리스트 탭 ═══ -->
         <section class="tab" id="tab-stafflist" style="flex-direction:column">
           <div class="crew-toolbar">
-            <span class="crew-toolbar-title">🎬 스태프 리스트</span>
+            <span class="crew-toolbar-title"><i data-lucide="hard-hat"></i> 스태프 리스트</span>
             <button class="crew-add-btn" onclick="addStaffRow()">+ 행 추가</button>
           </div>
           <div class="crew-scroll" id="stafflistWrap"></div>
@@ -866,7 +864,7 @@
         <!-- ═══ 배우 리스트 탭 ═══ -->
         <section class="tab" id="tab-actorlist" style="flex-direction:column">
           <div class="crew-toolbar">
-            <span class="crew-toolbar-title">🎭 배우 리스트</span>
+            <span class="crew-toolbar-title"><i data-lucide="star"></i> 배우 리스트</span>
             <button class="crew-add-btn" onclick="addActorRow()">+ 행 추가</button>
           </div>
           <div class="crew-scroll" id="actorlistWrap"></div>
@@ -897,7 +895,7 @@
         <!-- ═══ 프로젝트 정보 탭 ═══ -->
         <section class="tab" id="tab-info">
           <div class="info-tab-wrap">
-            <div class="info-tab-title">⚙️ 설정</div>
+            <div class="info-tab-title"><i data-lucide="settings"></i> 설정</div>
             <div class="info-tab-sub">프로젝트 저장 위치와 현재 파일 정보를 확인합니다.</div>
             <div class="info-header-sep"></div>
 
@@ -966,7 +964,7 @@
         <!-- ═══ 내 정보 탭 ═══ -->
         <section class="tab" id="tab-myinfo">
           <div class="info-tab-wrap">
-            <div class="info-tab-title">👤 내 정보</div>
+            <div class="info-tab-title"><i data-lucide="user-round"></i> 내 정보</div>
             <div class="info-tab-sub">로그인한 계정과 프로필 표시를 관리합니다.</div>
             <div class="info-header-sep"></div>
 
@@ -1002,7 +1000,7 @@
         <!-- ═══ 프로젝트 정보 탭 ═══ -->
         <section class="tab" id="tab-projinfo">
           <div class="info-tab-wrap">
-            <div class="info-tab-title">📋 프로젝트 정보</div>
+            <div class="info-tab-title"><i data-lucide="folder"></i> 프로젝트 정보</div>
             <div class="info-tab-sub">현재 열려있는 프로젝트의 정보와 참여자를 관리합니다.</div>
             <div class="info-header-sep"></div>
 
@@ -1132,7 +1130,7 @@
         <!-- ═══ 사용 가이드 화면 ═══ -->
         <section class="tab" id="tab-help">
           <div class="info-tab-wrap help-screen">
-            <div class="info-tab-title">📖 사용 가이드</div>
+            <div class="info-tab-title"><i data-lucide="book-open"></i> 사용 가이드</div>
             <div class="info-tab-sub">스크립트 작성부터 씬 브레이크다운까지 기본 흐름을 확인합니다.</div>
             <div class="info-header-sep"></div>
 
@@ -1239,7 +1237,7 @@
   <div id="donateModal" class="donate-overlay hidden" onclick="if(event.target===this)closeDonate()">
     <div class="donate-box">
       <button class="donate-close" onclick="closeDonate()">✕</button>
-      <div class="donate-title">☕ 개발자 후원하기</div>
+      <div class="donate-title"><i data-lucide="coffee"></i> 개발자 후원하기</div>
       <div class="donate-sub">
         Don't Panic Pre가 도움이 되셨나요?<br>
         커피 한 잔으로 개발을 응원해 주세요 🙏

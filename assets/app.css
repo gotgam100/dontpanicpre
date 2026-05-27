@@ -144,7 +144,8 @@ i[data-lucide], i[data-lucide] svg {
 .list-nav-item i[data-lucide], .list-nav-item i[data-lucide] svg { width: 13px; height: 13px; }
 .mobile-drawer-item i[data-lucide], .mobile-drawer-item i[data-lucide] svg { width: 16px; height: 16px; }
 .sidebar-user-popup-item i[data-lucide], .sidebar-user-popup-item i[data-lucide] svg { width: 14px; height: 14px; }
-.t-btn i[data-lucide], .t-btn i[data-lucide] svg { width: 14px; height: 14px; }
+.t-btn i[data-lucide], .t-btn i[data-lucide] svg { width: 13px; height: 13px; }
+#findReplaceToggleBtn { padding: 3px 7px; }
 
 .logo { font-size: 17px; font-weight: 800; letter-spacing: -.5px; color: var(--accent); white-space: nowrap; }
 .logo span { color: var(--text); }
