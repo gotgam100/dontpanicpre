@@ -7,8 +7,6 @@
   <title>Don't Panic Pre</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bangers&display=swap" rel="stylesheet">
-  <!-- Lucide SVG Icons -->
-  <script src="https://unpkg.com/lucide@0.523.0/dist/umd/lucide.min.js"></script>
   <!-- Firebase SDK (compat v10) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -491,25 +489,32 @@
             </div>
           </div>
           <div class="sidebar-user-popup-sep"></div>
-          <button class="sidebar-user-popup-item" onclick="switchTab('myinfo',null);closeSidebarUserPopup()"><i data-lucide="user"></i> 내 정보</button>
-          <button class="sidebar-user-popup-item" onclick="switchTab('projinfo',null);closeSidebarUserPopup()"><i data-lucide="folder"></i> 프로젝트 정보</button>
-          <button class="sidebar-user-popup-item" onclick="switchTab('info',null);closeSidebarUserPopup()"><i data-lucide="settings"></i> 설정</button>
-          <button class="sidebar-user-popup-item" onclick="showHelp();closeSidebarUserPopup()"><i data-lucide="book-open"></i> 사용가이드</button>
+          <button class="sidebar-user-popup-item" onclick="switchTab('myinfo',null);closeSidebarUserPopup()">👤 내
+            정보</button>
+          <button class="sidebar-user-popup-item" onclick="switchTab('projinfo',null);closeSidebarUserPopup()">📋 프로젝트
+            정보</button>
+          <button class="sidebar-user-popup-item" onclick="switchTab('info',null);closeSidebarUserPopup()">⚙️
+            설정</button>
+          <button class="sidebar-user-popup-item" onclick="showHelp();closeSidebarUserPopup()">📖 사용가이드</button>
           <div class="sidebar-user-popup-sep"></div>
           <div class="sidebar-popup-flyout-wrap">
-            <button class="sidebar-user-popup-item sidebar-popup-group-btn"><i data-lucide="file-up"></i> 스크립트 내보내기<span class="sidebar-popup-arrow">▸</span></button>
+            <button class="sidebar-user-popup-item sidebar-popup-group-btn">📤 스크립트 내보내기<span
+                class="sidebar-popup-arrow">▸</span></button>
             <div class="sidebar-popup-flyout">
               <div class="sidebar-popup-flyout-inner">
-                <button class="sidebar-popup-flyout-item" onclick="printScript();closeSidebarUserPopup()"><i data-lucide="printer"></i> PDF</button>
-                <button class="sidebar-popup-flyout-item" onclick="exportWord();closeSidebarUserPopup()"><i data-lucide="file-text"></i> Word</button>
+                <button class="sidebar-popup-flyout-item" onclick="printScript();closeSidebarUserPopup()">🖨
+                  PDF</button>
+                <button class="sidebar-popup-flyout-item" onclick="exportWord();closeSidebarUserPopup()">📄
+                  Word</button>
               </div>
             </div>
           </div>
           <div class="sidebar-user-popup-sep"></div>
           <button class="sidebar-user-popup-item" onclick="showDonate();closeSidebarUserPopup()">☕ 후원하기</button>
           <div class="sidebar-user-popup-sep"></div>
-          <button class="sidebar-user-popup-item" onclick="showProjectsOverlay();closeSidebarUserPopup()"><i data-lucide="folder-open"></i> 프로젝트 선택</button>
-          <button class="sidebar-user-popup-item sidebar-user-popup-logout" onclick="confirmLogout()"><i data-lucide="log-out"></i> 로그아웃</button>
+          <button class="sidebar-user-popup-item" onclick="showProjectsOverlay();closeSidebarUserPopup()">📂 프로젝트
+            선택</button>
+          <button class="sidebar-user-popup-item sidebar-user-popup-logout" onclick="confirmLogout()">🚪 로그아웃</button>
         </div>
         <button class="sidebar-user-btn" id="sidebarUserBtn" onclick="toggleSidebarUserPopup()">
           <div class="sidebar-user-avatar" id="sidebarUserAvatar"></div>
@@ -527,30 +532,30 @@
     <div class="app-content">
       <header class="header">
         <nav class="nav">
-          <button class="nav-btn on" onclick="switchTab('editor',    this)"><i data-lucide="pen-line"></i> 스크립트</button>
+          <button class="nav-btn on" onclick="switchTab('editor',    this)">🖊 스크립트</button>
           <div class="list-nav-wrap">
-            <button class="nav-btn" id="listNavBtn" onclick="toggleListNav(event)"><i data-lucide="layers"></i> 리스트 ▾</button>
+            <button class="nav-btn" id="listNavBtn" onclick="toggleListNav(event)">🗂 리스트 ▾</button>
             <div class="list-nav-dropdown" id="listNavDropdown">
-              <button class="list-nav-item" onclick="switchListTab('breakdown')"><i data-lucide="film"></i> 씬리스트</button>
-              <button class="list-nav-item" onclick="switchListTab('loclist')"><i data-lucide="map-pin"></i> 장소리스트</button>
-              <button class="list-nav-item" onclick="switchListTab('proplist')"><i data-lucide="briefcase"></i> 소품리스트</button>
-              <button class="list-nav-item" onclick="switchListTab('costumelist')"><i data-lucide="shirt"></i> 의상/분장</button>
+              <button class="list-nav-item" onclick="switchListTab('breakdown')">🗂 씬리스트</button>
+              <button class="list-nav-item" onclick="switchListTab('loclist')">📍 장소리스트</button>
+              <button class="list-nav-item" onclick="switchListTab('proplist')">🎭 소품리스트</button>
+              <button class="list-nav-item" onclick="switchListTab('costumelist')">👗 의상/분장</button>
             </div>
           </div>
-          <button class="nav-btn" onclick="switchTab('chars',     this)"><i data-lucide="user-round"></i> 인물설정</button>
+          <button class="nav-btn" onclick="switchTab('chars',     this)">👤 인물설정</button>
           <span class="nav-sep"></span>
           <div class="list-nav-wrap">
-            <button class="nav-btn" id="schedNavBtn" onclick="toggleSchedNav(event)"><i data-lucide="calendar-range"></i> 스케줄 ▾</button>
+            <button class="nav-btn" id="schedNavBtn" onclick="toggleSchedNav(event)">📅 스케줄 ▾</button>
             <div class="list-nav-dropdown" id="schedNavDropdown">
-              <button class="list-nav-item" onclick="switchSchedTab('schedule')"><i data-lucide="camera"></i> 촬영 스케줄</button>
-              <button class="list-nav-item" onclick="switchSchedTab('callsheet')"><i data-lucide="clipboard-list"></i> 일촬표</button>
+              <button class="list-nav-item" onclick="switchSchedTab('schedule')">🎥 촬영 스케줄</button>
+              <button class="list-nav-item" onclick="switchSchedTab('callsheet')">🎬 일촬표</button>
             </div>
           </div>
           <div class="list-nav-wrap">
-            <button class="nav-btn" id="crewNavBtn" onclick="toggleCrewNav(event)"><i data-lucide="users"></i> 제작진 ▾</button>
+            <button class="nav-btn" id="crewNavBtn" onclick="toggleCrewNav(event)">👥 제작진 ▾</button>
             <div class="list-nav-dropdown" id="crewNavDropdown">
-              <button class="list-nav-item" onclick="switchCrewTab('stafflist')"><i data-lucide="hard-hat"></i> 스태프 리스트</button>
-              <button class="list-nav-item" onclick="switchCrewTab('actorlist')"><i data-lucide="star"></i> 배우 리스트</button>
+              <button class="list-nav-item" onclick="switchCrewTab('stafflist')">🎬 스태프 리스트</button>
+              <button class="list-nav-item" onclick="switchCrewTab('actorlist')">🎭 배우 리스트</button>
             </div>
           </div>
         </nav>
@@ -563,7 +568,7 @@
             </svg>
             <span id="chatBadge" class="chat-badge hidden">0</span>
           </button>
-          <button class="mobile-menu-btn" id="mobileMenuBtn" onclick="toggleMobileNav()" title="메뉴"><i data-lucide="menu"></i></button>
+          <button class="mobile-menu-btn" id="mobileMenuBtn" onclick="toggleMobileNav()" title="메뉴">☰</button>
         </div>
       </header>
 
@@ -579,7 +584,7 @@
             </svg>
             공유 채팅방
           </span>
-          <button class="chat-panel-close" onclick="toggleChatPanel()"><i data-lucide="x"></i></button>
+          <button class="chat-panel-close" onclick="toggleChatPanel()">✕</button>
         </div>
         <div id="chatGroupDesc" class="chat-group-desc">
           <p>공유 채팅방은 참가자 모두의 채팅기록을 확인할 수 있습니다. 1:1 대화는 상단의 접속자 이모티콘을 눌러 시작하세요.</p>
@@ -605,24 +610,27 @@
       <nav class="mobile-nav-drawer" id="mobileNavDrawer">
         <div class="mobile-drawer-logo"><span style="color:#fbbf24">Don't Panic</span> Pre <span
             style="font-size:11px;color:var(--text-dim);font-weight:400">ver.1.1</span></div>
-        <button class="mobile-drawer-item on" data-tab="editor" onclick="mobileTab('editor',   this)"><i data-lucide="pen-line"></i> 스크립트</button>
-        <button class="mobile-drawer-item" data-tab="breakdown" onclick="mobileTab('breakdown',this)"><i data-lucide="film"></i> 씬리스트</button>
-        <button class="mobile-drawer-item" data-tab="loclist" onclick="mobileTab('loclist',  this)"><i data-lucide="map-pin"></i> 장소리스트</button>
-        <button class="mobile-drawer-item" data-tab="proplist" onclick="mobileTab('proplist', this)"><i data-lucide="briefcase"></i> 소품리스트</button>
-        <button class="mobile-drawer-item" data-tab="costumelist" onclick="mobileTab('costumelist', this)"><i data-lucide="shirt"></i> 의상/분장</button>
-        <button class="mobile-drawer-item" data-tab="chars" onclick="mobileTab('chars',    this)"><i data-lucide="user-round"></i> 인물설정</button>
-        <button class="mobile-drawer-item" data-tab="schedule"   onclick="mobileTab('schedule',  this)"><i data-lucide="camera"></i> 촬영 스케줄</button>
-        <button class="mobile-drawer-item" data-tab="callsheet"  onclick="mobileTab('callsheet', this)"><i data-lucide="clipboard-list"></i> 일촬표</button>
-        <button class="mobile-drawer-item" data-tab="stafflist"  onclick="mobileTab('stafflist', this)"><i data-lucide="hard-hat"></i> 스태프 리스트</button>
-        <button class="mobile-drawer-item" data-tab="actorlist"  onclick="mobileTab('actorlist', this)"><i data-lucide="star"></i> 배우 리스트</button>
+        <button class="mobile-drawer-item on" data-tab="editor" onclick="mobileTab('editor',   this)">🖊 스크립트</button>
+        <button class="mobile-drawer-item" data-tab="breakdown" onclick="mobileTab('breakdown',this)">🗂 씬리스트</button>
+        <button class="mobile-drawer-item" data-tab="loclist" onclick="mobileTab('loclist',  this)">📍 장소리스트</button>
+        <button class="mobile-drawer-item" data-tab="proplist" onclick="mobileTab('proplist',    this)">🎭
+          소품리스트</button>
+        <button class="mobile-drawer-item" data-tab="costumelist" onclick="mobileTab('costumelist', this)">👗
+          의상/분장</button>
+        <button class="mobile-drawer-item" data-tab="chars" onclick="mobileTab('chars',    this)">👤 인물설정</button>
+        <button class="mobile-drawer-item" data-tab="schedule"   onclick="mobileTab('schedule',  this)">🎥 촬영 스케줄</button>
+        <button class="mobile-drawer-item" data-tab="callsheet"  onclick="mobileTab('callsheet', this)">🎬 일촬표</button>
+        <button class="mobile-drawer-item" data-tab="stafflist"  onclick="mobileTab('stafflist', this)">🎬 스태프 리스트</button>
+        <button class="mobile-drawer-item" data-tab="actorlist"  onclick="mobileTab('actorlist', this)">🎭 배우 리스트</button>
         <div class="mobile-drawer-sep"></div>
-        <button class="mobile-drawer-item" data-tab="projinfo" onclick="mobileTab('projinfo', this)"><i data-lucide="folder"></i> 프로젝트 정보</button>
-        <button class="mobile-drawer-item" data-tab="myinfo" onclick="mobileTab('myinfo',   this)"><i data-lucide="user"></i> 내 정보</button>
+        <button class="mobile-drawer-item" data-tab="projinfo" onclick="mobileTab('projinfo', this)">📋 프로젝트 정보</button>
+        <button class="mobile-drawer-item" data-tab="myinfo" onclick="mobileTab('myinfo',   this)">👤 내 정보</button>
         <div class="mobile-drawer-sep"></div>
-        <button class="mobile-drawer-item" onclick="showHelp();closeMobileNav()"><i data-lucide="book-open"></i> 사용 가이드</button>
+        <button class="mobile-drawer-item" onclick="showHelp();closeMobileNav()">📖 사용 가이드</button>
         <div class="mobile-drawer-sep"></div>
-        <button class="mobile-drawer-item" onclick="backupProject();closeMobileNav()"><i data-lucide="download"></i> 백업</button>
-        <label class="mobile-drawer-item" style="cursor:pointer"><i data-lucide="folder-open"></i> 불러오기<input type="file" accept=".json" style="display:none" onchange="restoreProject(this);closeMobileNav()"></label>
+        <button class="mobile-drawer-item" onclick="backupProject();closeMobileNav()">💾 백업</button>
+        <label class="mobile-drawer-item" style="cursor:pointer">📂 불러오기<input type="file" accept=".json"
+            style="display:none" onchange="restoreProject(this);closeMobileNav()"></label>
       </nav>
 
       <main class="main">
@@ -686,7 +694,7 @@
                         onclick="setZoomFitPage()">📄 페이지에 맞추기</button>
                     </div>
                   </div>
-                  <button class="t-btn" id="findReplaceToggleBtn" onclick="toggleFindReplace()" title="찾기/바꾸기 (⌘F)"><i data-lucide="search"></i></button>
+                  <button class="t-btn" id="findReplaceToggleBtn" onclick="toggleFindReplace()" title="찾기/바꾸기 (⌘F)">🔍</button>
                 </div>
               </div>
 
@@ -704,7 +712,7 @@
                 <span class="fr-count" id="frCount"></span>
                 <button class="fr-btn fr-nav" onclick="frPrev()" title="이전 (Shift+Enter)">↑</button>
                 <button class="fr-btn fr-nav" onclick="frNext()" title="다음 (Enter)">↓</button>
-                <button class="fr-btn fr-close" onclick="closeFindReplace()"><i data-lucide="x"></i></button>
+                <button class="fr-btn fr-close" onclick="closeFindReplace()">✕</button>
               </div>
               <div class="fr-row">
                 <input class="fr-input" id="frReplace" placeholder="바꿀 내용..."
@@ -727,8 +735,8 @@
           <!-- 모바일 사이드바 FAB -->
           <button class="sidebar-toggle-fab" onclick="toggleMobileSidebar()" title="씬 목록">≡</button>
           <aside class="scene-sidebar">
-            <div class="sidebar-title"><i data-lucide="clapperboard"></i> 씬 브레이크다운
-              <button class="sidebar-mobile-close" onclick="closeMobileSidebar()" title="스크립트로 돌아가기"><i data-lucide="x"></i> 스크립트</button>
+            <div class="sidebar-title">🎬 씬 브레이크다운
+              <button class="sidebar-mobile-close" onclick="closeMobileSidebar()" title="스크립트로 돌아가기">✕ 스크립트</button>
             </div>
             <div class="scene-list" id="sidebarList">
               <div class="empty" style="height:140px">
@@ -743,7 +751,7 @@
         <section class="tab" id="tab-breakdown">
           <div class="stats-bar" id="statsBar"></div>
           <div class="filter-bar">
-            <span class="tab-bar-title"><i data-lucide="film"></i> 씬리스트</span>
+            <span class="tab-bar-title">🎬 씬리스트</span>
             <span class="tab-bar-divider"></span>
             <span class="filter-label">필터</span>
             <button class="f-btn on" onclick="setFilter('all',this)">전체</button>
@@ -765,7 +773,7 @@
         <section class="tab" id="tab-loclist">
           <div class="stats-bar" id="locStatsBar"></div>
           <div class="filter-bar">
-            <span class="tab-bar-title"><i data-lucide="map-pin"></i> 장소리스트</span>
+            <span class="tab-bar-title">📍 장소리스트</span>
             <span class="tab-bar-divider"></span>
             <span style="font-size:11px;color:var(--text-dim)">씬 헤딩의 장소와 +장소로 등록한 장소가 자동으로 표시됩니다</span>
             <button class="sbd-print-btn" onclick="printLocList()" style="margin-left:auto">🖨 PDF 출력</button>
@@ -794,7 +802,7 @@
         <!-- ═══ 소품리스트 탭 ═══ -->
         <section class="tab" id="tab-proplist">
           <div class="prop-toolbar">
-            <span class="prop-toolbar-title"><i data-lucide="briefcase"></i> 소품리스트</span>
+            <span class="prop-toolbar-title">🎭 소품리스트</span>
             <span class="prop-hint">씬브레이크다운에 등록된 소품이 자동 표시됩니다 · 직접 추가도 가능합니다</span>
             <button class="sbd-print-btn" onclick="printPropList()" style="margin-left:auto">🖨 PDF 출력</button>
           </div>
@@ -809,7 +817,7 @@
         <!-- ═══ 의상/분장 리스트 탭 ═══ -->
         <section class="tab" id="tab-costumelist">
           <div class="prop-toolbar">
-            <span class="prop-toolbar-title"><i data-lucide="shirt"></i> 의상/분장 리스트</span>
+            <span class="prop-toolbar-title">👗 의상/분장 리스트</span>
             <span class="prop-hint">씬브레이크다운에 등록된 의상/분장이 자동 표시됩니다 · 직접 추가도 가능합니다</span>
             <button class="sbd-print-btn" onclick="printCostumeList()" style="margin-left:auto">🖨 PDF 출력</button>
           </div>
@@ -855,7 +863,7 @@
         <!-- ═══ 스태프 리스트 탭 ═══ -->
         <section class="tab" id="tab-stafflist" style="flex-direction:column">
           <div class="crew-toolbar">
-            <span class="crew-toolbar-title"><i data-lucide="hard-hat"></i> 스태프 리스트</span>
+            <span class="crew-toolbar-title">🎬 스태프 리스트</span>
             <button class="crew-add-btn" onclick="addStaffRow()">+ 행 추가</button>
           </div>
           <div class="crew-scroll" id="stafflistWrap"></div>
@@ -864,7 +872,7 @@
         <!-- ═══ 배우 리스트 탭 ═══ -->
         <section class="tab" id="tab-actorlist" style="flex-direction:column">
           <div class="crew-toolbar">
-            <span class="crew-toolbar-title"><i data-lucide="star"></i> 배우 리스트</span>
+            <span class="crew-toolbar-title">🎭 배우 리스트</span>
             <button class="crew-add-btn" onclick="addActorRow()">+ 행 추가</button>
           </div>
           <div class="crew-scroll" id="actorlistWrap"></div>
@@ -895,7 +903,7 @@
         <!-- ═══ 프로젝트 정보 탭 ═══ -->
         <section class="tab" id="tab-info">
           <div class="info-tab-wrap">
-            <div class="info-tab-title"><i data-lucide="settings"></i> 설정</div>
+            <div class="info-tab-title">⚙️ 설정</div>
             <div class="info-tab-sub">프로젝트 저장 위치와 현재 파일 정보를 확인합니다.</div>
             <div class="info-header-sep"></div>
 
@@ -964,7 +972,7 @@
         <!-- ═══ 내 정보 탭 ═══ -->
         <section class="tab" id="tab-myinfo">
           <div class="info-tab-wrap">
-            <div class="info-tab-title"><i data-lucide="user-round"></i> 내 정보</div>
+            <div class="info-tab-title">👤 내 정보</div>
             <div class="info-tab-sub">로그인한 계정과 프로필 표시를 관리합니다.</div>
             <div class="info-header-sep"></div>
 
@@ -1000,7 +1008,7 @@
         <!-- ═══ 프로젝트 정보 탭 ═══ -->
         <section class="tab" id="tab-projinfo">
           <div class="info-tab-wrap">
-            <div class="info-tab-title"><i data-lucide="folder"></i> 프로젝트 정보</div>
+            <div class="info-tab-title">📋 프로젝트 정보</div>
             <div class="info-tab-sub">현재 열려있는 프로젝트의 정보와 참여자를 관리합니다.</div>
             <div class="info-header-sep"></div>
 
@@ -1130,7 +1138,7 @@
         <!-- ═══ 사용 가이드 화면 ═══ -->
         <section class="tab" id="tab-help">
           <div class="info-tab-wrap help-screen">
-            <div class="info-tab-title"><i data-lucide="book-open"></i> 사용 가이드</div>
+            <div class="info-tab-title">📖 사용 가이드</div>
             <div class="info-tab-sub">스크립트 작성부터 씬 브레이크다운까지 기본 흐름을 확인합니다.</div>
             <div class="info-header-sep"></div>
 
@@ -1237,7 +1245,7 @@
   <div id="donateModal" class="donate-overlay hidden" onclick="if(event.target===this)closeDonate()">
     <div class="donate-box">
       <button class="donate-close" onclick="closeDonate()">✕</button>
-      <div class="donate-title"><i data-lucide="coffee"></i> 개발자 후원하기</div>
+      <div class="donate-title">☕ 개발자 후원하기</div>
       <div class="donate-sub">
         Don't Panic Pre가 도움이 되셨나요?<br>
         커피 한 잔으로 개발을 응원해 주세요 🙏
@@ -1411,11 +1419,6 @@
       <span class="elem-ctx-dot elem-ctx-cancel-icon">✕</span>등록 취소
     </button>
   </div>
-
-  <script>
-    // Lucide 아이콘 초기화
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-  </script>
 
 </body>
 
