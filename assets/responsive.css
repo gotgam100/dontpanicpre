@@ -101,6 +101,14 @@ html[data-theme="light"] {
   --c-char:      #4338ca;
   --c-dial:      #374151;
 }
+html[data-theme="light"] .header {
+  background: rgba(255,255,255,0.88);
+  border-bottom: 1px solid rgba(0,0,0,.09);
+}
+html[data-theme="light"] .sidebar {
+  background: linear-gradient(180deg, #f8f9fe 0%, #eef0fb 100%);
+  border-right: 1px solid rgba(0,0,0,.08);
+}
 
 /* ============================================================
  * SCRIPT READ MODE fabs
