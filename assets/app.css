@@ -390,12 +390,15 @@ body {
   position: relative;
 }
 .sidebar-app-title {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 800;
   white-space: nowrap;
   overflow: hidden;
   flex: 1;
   min-width: 0;
+  opacity: 1;
+  /* 펼칠 때: 사이드바 너비 전환이 끝난 뒤 나타남 */
+  transition: opacity 0.18s ease 0.2s;
 }
 .sidebar-toggle-btn {
   position: absolute;
@@ -526,13 +529,19 @@ body {
 }
 
 /* 접힌 상태 */
-.sidebar.collapsed .sidebar-app-title,
 .sidebar.collapsed .sidebar-project-block,
 .sidebar.collapsed .sb-sloc,
 .sidebar.collapsed .sb-badges,
 .sidebar.collapsed .sidebar-user-info { display: none; }
+/* 제목: 즉시 사라짐 (트랜지션 delay 없음) */
+.sidebar.collapsed .sidebar-app-title {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.08s ease 0s;
+}
 .sidebar.collapsed .sidebar-header { justify-content: flex-start; padding: 0 14px; }
-.sidebar.collapsed .sidebar-scene-item { justify-content: center; padding: 7px 0; }
+/* 씬 항목: 왼쪽 정렬 */
+.sidebar.collapsed .sidebar-scene-item { justify-content: flex-start; padding: 7px 0 7px 14px; }
 .sidebar.collapsed .sb-snum { min-width: 0; }
 .sidebar.collapsed .sidebar-user-btn { justify-content: center; padding: 10px 0; }
 
@@ -1320,7 +1329,7 @@ kbd {
 /* 인서트씬 등록 모달 */
 .ins-modal-overlay { display:none; position:fixed; inset:0; z-index:2000; background:rgba(0,0,0,.6); align-items:center; justify-content:center; }
 .ins-modal-overlay.open { display:flex; }
-.ins-modal { background:var(--surface); border:1px solid var(--border2); border-radius:12px; padding:22px 24px; width:310px; box-shadow:0 16px 48px rgba(0,0,0,.6); }
+.ins-modal { background:var(--surface); border:1px solid var(--border2); border-radius:12px; padding:22px 24px; width:360px; max-width:calc(100vw - 32px); box-shadow:0 16px 48px rgba(0,0,0,.6); }
 .ins-modal-title { font-size:14px; font-weight:700; color:#fb923c; margin-bottom:16px; }
 .ins-modal-sec { margin-bottom:14px; }
 .ins-modal-desc { color:var(--text-muted); font-size:12px; line-height:1.55; }
@@ -1342,6 +1351,15 @@ kbd {
 .ins-modal-btn.primary { background:#fb923c; color:#fff; border-color:#fb923c; font-weight:600; }
 .ins-modal-btn.danger  { background:rgba(248,113,113,.12); color:#f87171; border-color:rgba(248,113,113,.3); }
 .ins-modal-btn:hover { opacity:.85; }
+.ins-chip-group { display:flex; gap:6px; flex-wrap:wrap; }
+.ins-chip {
+  padding:5px 12px; border-radius:20px; border:1px solid var(--border2);
+  background:var(--surface2); color:var(--text-muted);
+  font-size:12px; font-family:inherit; cursor:pointer;
+  transition:background .12s, color .12s, border-color .12s;
+}
+.ins-chip:hover { background:var(--surface3); color:var(--text); }
+.ins-chip.on { background:#fb923c; color:#fff; border-color:#fb923c; }
 .confirm-modal p { font-size: 13px; line-height: 1.7; margin: 0 0 20px; word-break: keep-all; white-space: pre-line; }
 .dr-btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
 .dr-btn-ok   { padding: 6px 18px; border-radius: 6px; border: none; background: var(--accent); color: #000; font-weight: 700; font-size: 13px; cursor: pointer; font-family: inherit; }

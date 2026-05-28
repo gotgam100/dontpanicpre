@@ -1233,16 +1233,14 @@ function openHeadingModal() {
     document.querySelectorAll('#hmIE .hm-chip').forEach(b => b.classList.toggle('on', b.dataset.val === ie));
 
     const timeVal = detectTime(txt);
-    const timeLabel = { day:'오후', night:'밤', dawn:'새벽', eve:'저녁' };
-    // 원문에서 오전/오후/해질녘 직접 감지
-    let label = '오후';
-    if (txt.includes('새벽'))    label = '새벽';
-    else if (txt.includes('오전')) label = '오전';
-    else if (txt.includes('오후')) label = '오후';
-    else if (txt.includes('해질')) label = '해질녘';
-    else if (txt.includes('저녁')) label = '저녁';
-    else if (txt.includes('밤'))  label = '밤';
-    else label = timeLabel[timeVal] || '오후';
+    const timeLabel = { day:'낮', night:'밤', dawn:'새벽', eve:'저녁' };
+    // 원문에서 시간대 직접 감지 → 칩 레이블(새벽/낮/저녁/밤)로 매핑
+    let label = '낮';
+    if (txt.includes('새벽'))                          label = '새벽';
+    else if (txt.includes('오전') || txt.includes('낮') || txt.includes('오후')) label = '낮';
+    else if (txt.includes('해질') || txt.includes('저녁')) label = '저녁';
+    else if (txt.includes('밤'))                       label = '밤';
+    else label = timeLabel[timeVal] || '낮';
     document.querySelectorAll('#hmTime .hm-chip').forEach(b => b.classList.toggle('on', b.dataset.val === label));
   } else {
     // 신규: 다음 씬 번호 자동 계산
@@ -1252,7 +1250,7 @@ function openHeadingModal() {
     document.getElementById('hmSceneNum').value = maxNum + 1;
     document.getElementById('hmLoc').value = '';
     document.querySelectorAll('#hmIE .hm-chip').forEach(b => b.classList.toggle('on', b.dataset.val === 'INT'));
-    document.querySelectorAll('#hmTime .hm-chip').forEach(b => b.classList.toggle('on', b.dataset.val === '오후'));
+    document.querySelectorAll('#hmTime .hm-chip').forEach(b => b.classList.toggle('on', b.dataset.val === '낮'));
   }
 
   document.getElementById('headingModal').classList.remove('hidden');
@@ -1267,6 +1265,10 @@ function closeHeadingModal() {
 
 function hmSelect(groupId, btn) {
   document.querySelectorAll(`#${groupId} .hm-chip`).forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+}
+function insChipSelect(groupId, btn) {
+  document.querySelectorAll(`#${groupId} .ins-chip`).forEach(b => b.classList.remove('on'));
   btn.classList.add('on');
 }
 
@@ -2018,6 +2020,23 @@ function scrollToSceneHeading(heading, { smooth = true } = {}) {
 
 function sidebarGoToScene(sceneNum) {
   switchTab('editor', document.querySelectorAll('.nav-btn')[0]);
+
+  // 인서트씬: data-scene-num은 PM 재렌더 시 지워지므로 data-insert-id로 탐색
+  const snumStr = String(sceneNum);
+  if (snumStr.includes('_ins')) {
+    const insertId = Object.entries(_insertIdToSceneNum).find(([, sn]) => String(sn) === snumStr)?.[0];
+    const para = insertId ? ed().querySelector(`p[data-insert-id="${insertId}"]`) : null;
+    if (para) {
+      if (window.DPEditor?.isReady()) {
+        setTimeout(() => pmScrollToEl(para), 80);
+      } else {
+        scrollToSceneHeading(para);
+        setTimeout(() => moveCursorTo(para, false), 150);
+      }
+    }
+    return;
+  }
+
   if (window.DPEditor?.isReady() && typeof sceneNum === 'number') {
     // ProseMirror 모드: PM 문서에서 N번째 heading 노드를 직접 탐색
     const headingEl = DPEditor.goToHeading(sceneNum);
@@ -2026,7 +2045,7 @@ function sidebarGoToScene(sceneNum) {
     }
     return;
   }
-  // 폴백: contentEditable / insert 씬
+  // 폴백: contentEditable
   const heading = ed().querySelector(`[data-scene-num="${sceneNum}"]`);
   if (!heading) return;
   scrollToSceneHeading(heading);
@@ -2154,6 +2173,23 @@ function renderSidebar() {
 // 씬 클릭 → 에디터 스크롤 + 커서 이동
 function scrollToScene(sceneNum) {
   switchTab('editor', document.querySelectorAll('.nav-btn')[0]);
+
+  // 인서트씬: data-scene-num은 PM 재렌더 시 지워지므로 data-insert-id로 탐색
+  const snumStr = String(sceneNum);
+  if (snumStr.includes('_ins')) {
+    const insertId = Object.entries(_insertIdToSceneNum).find(([, sn]) => String(sn) === snumStr)?.[0];
+    const para = insertId ? ed().querySelector(`p[data-insert-id="${insertId}"]`) : null;
+    if (para) {
+      if (window.DPEditor?.isReady()) {
+        setTimeout(() => pmScrollToEl(para), 80);
+      } else {
+        scrollToSceneHeading(para);
+        setTimeout(() => moveCursorTo(para, false), 150);
+      }
+    }
+    return;
+  }
+
   // sceneNum이 문자열 숫자('1', '2'...)로 올 수 있으므로 Number 변환
   const seq = Number(sceneNum);
   if (window.DPEditor?.isReady() && Number.isInteger(seq) && seq > 0) {
@@ -2769,6 +2805,15 @@ function addInsertToSelection(btn) {
     document.getElementById('insDeleteBtn').classList.remove('hidden');
     document.getElementById('insConfirmBtn').textContent   = '수정';
     document.getElementById('insLocInput').value = insertParas[0]?.dataset.insertLoc || '';
+    // IE · 시간대 칩 기존값으로 복원
+    { const TIME_TO_LABEL = { day:'낮', night:'밤', dawn:'새벽', eve:'저녁' };
+      const editSnum = _insertIdToSceneNum[insertId];
+      const existing = sceneExtras[editSnum] || {};
+      const existIe   = existing.ie   || insertParas[0]?.dataset.insertIe   || 'INT';
+      const existTime = existing.time  || insertParas[0]?.dataset.insertTime || 'day';
+      document.querySelectorAll('#insIE .ins-chip').forEach(b => b.classList.toggle('on', b.dataset.val === existIe));
+      document.querySelectorAll('#insTime .ins-chip').forEach(b => b.classList.toggle('on', b.dataset.val === (TIME_TO_LABEL[existTime] || '낮')));
+    }
     document.getElementById('insModal').classList.add('open');
     setTimeout(() => document.getElementById('insLocInput').focus(), 80);
     return;
@@ -2820,6 +2865,13 @@ function addInsertToSelection(btn) {
   // 모달 열기 (인서트 헤딩 수집)
   document.getElementById('insModal').classList.add('open');
   document.getElementById('insLocInput').value = parentScene?.loc || extractLoc(parentHeadingText) || '';
+  // IE · 시간대 칩: 부모씬 값으로 초기화
+  { const TIME_TO_LABEL = { day:'낮', night:'밤', dawn:'새벽', eve:'저녁' };
+    const pIe    = parentScene?.ie   || 'INT';
+    const pTimeL = TIME_TO_LABEL[parentScene?.time] || '낮';
+    document.querySelectorAll('#insIE .ins-chip').forEach(b => b.classList.toggle('on', b.dataset.val === pIe));
+    document.querySelectorAll('#insTime .ins-chip').forEach(b => b.classList.toggle('on', b.dataset.val === pTimeL));
+  }
   setTimeout(() => document.getElementById('insLocInput').focus(), 80);
 }
 
@@ -2880,12 +2932,15 @@ function autoMigrateElemsToInsert(insertId, parentSnumKey, insertSnum) {
     charProp: 'charPropItems', setProp:  'setPropItems',
     vfx:      'vfxItems',      etc:      'etcItems',
   };
+
   const insertParas = [...ed().querySelectorAll(`p[data-insert-id="${insertId}"]`)];
   if (!insertParas.length) return false;
   const parentExtra = sceneExtras[parentSnumKey];
   if (!parentExtra) return false;
 
-  let migrated = false;
+  // 인서트 구간의 elem-tag span으로 명시적으로 태깅된 텍스트만 수집 (field별)
+  // — 텍스트가 단순히 포함되어 있다고 이동하지 않음 (오탐 방지)
+  const taggedByField = {}; // field → Set<text>
   for (const p of insertParas) {
     for (const span of p.querySelectorAll('span.elem-tag[data-elem-type]')) {
       const type  = span.dataset.elemType;
@@ -2893,14 +2948,24 @@ function autoMigrateElemsToInsert(insertId, parentSnumKey, insertSnum) {
       if (!field) continue;
       const text = span.textContent.trim();
       if (!text) continue;
-      const parentItems = parentExtra[field];
-      if (!parentItems?.length) continue;
-      const idx = parentItems.findIndex(it => getItemText(it) === text);
-      if (idx < 0) continue;
-      // 부모씬에서 제거
-      const [item] = parentItems.splice(idx, 1);
+      if (!taggedByField[field]) taggedByField[field] = new Set();
+      taggedByField[field].add(text);
+    }
+  }
+
+  if (!Object.keys(taggedByField).length) return false;
+
+  let migrated = false;
+  for (const [field, taggedTexts] of Object.entries(taggedByField)) {
+    const parentItems = parentExtra[field];
+    if (!parentItems?.length) continue;
+    // 뒤에서부터 순회 → splice 인덱스 안전
+    for (let i = parentItems.length - 1; i >= 0; i--) {
+      const item = parentItems[i];
+      const text = getItemText(item);
+      if (!text || !taggedTexts.has(text)) continue;
+      parentItems.splice(i, 1);
       removeFromListField(String(parentSnumKey), ITEMS_TO_LIST[field], text);
-      // 인서트씬에 추가
       if (!sceneExtras[insertSnum]) sceneExtras[insertSnum] = {};
       if (!sceneExtras[insertSnum][field]) sceneExtras[insertSnum][field] = [];
       if (!sceneExtras[insertSnum][field].some(it => getItemText(it) === text)) {
@@ -3048,20 +3113,36 @@ function confirmInsertScene() {
     _pendingInsertIsEdit   = false;
     document.getElementById('insModal').classList.remove('open');
     _resetInsModal();
+    // 칩에서 IE · 시간대 읽기
+    const editIe       = document.querySelector('#insIE .ins-chip.on')?.dataset.val   || 'INT';
+    const editTimeChip = document.querySelector('#insTime .ins-chip.on')?.dataset.val || '낮';
+    const editDn       = TIME_MAP[editTimeChip] || 'day';
     // PM 또는 DOM 직접 업데이트 (updateInsertGroup은 onChange→onEditorInput 자동 유발)
     if (window.DPEditor?.isReady()) {
-      // sceneExtras를 먼저 업데이트 → onChange→onEditorInput에서 올바른 loc 반영
-      if (editSnum && sceneExtras[editSnum]) sceneExtras[editSnum].loc = loc;
-      window.DPEditor.updateInsertGroup(insertId, { insertLoc: loc });
+      // sceneExtras를 먼저 업데이트 → onChange→onEditorInput에서 올바른 값 반영
+      if (editSnum && sceneExtras[editSnum]) {
+        sceneExtras[editSnum].loc  = loc;
+        sceneExtras[editSnum].ie   = editIe;
+        sceneExtras[editSnum].time = editDn;
+      }
+      window.DPEditor.updateInsertGroup(insertId, { insertLoc: loc, insertIe: editIe, insertTime: editDn });
       // onEditorInput이 자동 호출되므로 renderSidebar 등 중복 호출 불필요.
       // 단, breakdown 탭은 onEditorInput에서 갱신 안 하므로 명시 호출
       if (document.getElementById('tab-breakdown')?.classList.contains('on')) renderBreakdown();
       if (document.getElementById('tab-scenebd')?.classList.contains('on'))   renderSceneBd();
     } else {
-      ed().querySelectorAll(`p[data-insert-id="${insertId}"]`).forEach(p => { p.dataset.insertLoc = loc; });
-      if (editSnum && sceneExtras[editSnum]) sceneExtras[editSnum].loc = loc;
+      ed().querySelectorAll(`p[data-insert-id="${insertId}"]`).forEach(p => {
+        p.dataset.insertLoc  = loc;
+        p.dataset.insertIe   = editIe;
+        p.dataset.insertTime = editDn;
+      });
+      if (editSnum && sceneExtras[editSnum]) {
+        sceneExtras[editSnum].loc  = loc;
+        sceneExtras[editSnum].ie   = editIe;
+        sceneExtras[editSnum].time = editDn;
+      }
       const editScene = scenes.find(sc => String(sc.number) === String(editSnum));
-      if (editScene) { editScene.heading = loc; editScene.loc = loc; }
+      if (editScene) { editScene.ie = editIe; editScene.time = editDn; editScene.heading = loc; editScene.loc = loc; }
       onEditorInput();
       if (document.getElementById('tab-breakdown')?.classList.contains('on')) renderBreakdown();
       if (document.getElementById('tab-scenebd')?.classList.contains('on'))   renderSceneBd();
@@ -3080,8 +3161,10 @@ function confirmInsertScene() {
   const markedGroup = [...ed().querySelectorAll(`p[data-insert-id="${markerId}"]`)];
   const parentSeq = markedGroup[0]?.dataset.insertParentSeq || null;
   const parentScene = scenes.find(s => String(s.number) === String(parentSeq));
-  const ie = parentScene?.ie || 'INT';
-  const dn = parentScene?.time || 'day';
+  // IE · 시간대는 모달 칩에서 읽음 (부모씬은 fallback)
+  const ie       = document.querySelector('#insIE .ins-chip.on')?.dataset.val   || parentScene?.ie   || 'INT';
+  const timeChip = document.querySelector('#insTime .ins-chip.on')?.dataset.val || '낮';
+  const dn       = TIME_MAP[timeChip] || parentScene?.time || 'day';
 
   // PM 트랜잭션으로 insert attrs 갱신 (DOM 직접 조작 금지)
   if (window.DPEditor?.isReady()) {
