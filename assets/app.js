@@ -1539,7 +1539,9 @@ function onEditorInput() {
 
   normalizeEditor();
   autoRenumberHeadings();
+  const _prevInsertMap = { ..._insertIdToSceneNum }; // 파싱 전 스냅샷
   scenes = parseFromEditor();
+  migrateInsertSceneData(_prevInsertMap);            // sceneNum 변경 시 데이터 이전
   // 스케줄 날짜 복원 + 인서트 씬 ie/time 수동 설정 복원
   scenes.forEach(s => {
     for (const [date, nums] of Object.entries(sched))
@@ -1699,31 +1701,6 @@ function parseFromEditor() {
   });
   _insertIdToSceneNum = {};
 
-  // ── 1차 패스: insertId 안정 번호 사전 할당 ─────────────────────────────────
-  // DOM 순서 대신 insertId(생성시각 기반) 정렬로 sceneNum 결정.
-  // 이유: ① 인서트씬 순서 변경 시 sceneExtras 키(=등록 요소) 유지
-  //       ② 스크립트 중간에 헤딩이 추가돼도 stale insertParentSeq 문제 방지
-  {
-    let tSeq = 0;
-    const idsByParent = {}; // { parentSeq: Set<insertId> }
-    paras.forEach(p => {
-      if (!p.textContent.trim()) return;
-      const t = p.dataset.type || guessType(p.textContent.trim());
-      if (t === 'heading') { tSeq++; }
-      else if (p.dataset.insertId && tSeq > 0) {
-        if (!idsByParent[tSeq]) idsByParent[tSeq] = new Set();
-        idsByParent[tSeq].add(p.dataset.insertId);
-      }
-    });
-    // 부모씬별 insertId 정렬(=생성 순서) → 안정 번호 부여
-    Object.entries(idsByParent).forEach(([pSeq, idSet]) => {
-      [...idSet].sort().forEach((id, i) => {
-        insertGroupSeqMap[`${pSeq}:${id}`] = `${pSeq}_ins${i + 1}`;
-      });
-    });
-  }
-
-  // ── 2차 패스: lines 배열 빌드 ────────────────────────────────────────────
   paras.forEach(p => {
     const text = p.textContent.trim();
     if (!text) return;
@@ -1735,9 +1712,15 @@ function parseFromEditor() {
       insSeqMap[seq] = 0;
     } else if (insertId && seq > 0) {
       // 항상 현재 seq를 parentSeq로 사용 (stale insertParentSeq 무시)
+      // DOM 위치 순서대로 번호 부여 → 중간에 인서트씬이 추가되면 이후 번호 자동 갱신
+      // (sceneNum 변경 시 sceneExtras 자동 마이그레이션 → onEditorInput의 migrateInsertSceneData)
       const parentSeq = seq;
       const groupKey  = `${parentSeq}:${insertId}`;
-      const sceneNum  = insertGroupSeqMap[groupKey] || `${parentSeq}_ins?`;
+      if (!insertGroupSeqMap[groupKey]) {
+        insSeqMap[parentSeq] = (insSeqMap[parentSeq] || 0) + 1;
+        insertGroupSeqMap[groupKey] = `${parentSeq}_ins${insSeqMap[parentSeq]}`;
+      }
+      const sceneNum = insertGroupSeqMap[groupKey];
       p.dataset.sceneNum       = sceneNum;
       p.dataset.parentSceneNum = String(parentSeq);
       _insertIdToSceneNum[insertId] = sceneNum;
@@ -1750,7 +1733,7 @@ function parseFromEditor() {
         insertTime: p.dataset.insertTime  || '',
         insertLoc:  p.dataset.insertLoc   || '',
         parentSeq,
-        sceneNum,   // stable sceneNum → buildScenes에 직접 전달
+        sceneNum,
       });
     } else if (type === 'insert' && seq > 0) {
       // 레거시: l-insert 단락
@@ -2874,6 +2857,79 @@ function getSelectionElemType() {
   return getSelectionElemSpan()?.dataset.elemType || null;
 }
 
+// ── 인서트씬 sceneNum 변경 시 sceneExtras / sched / sceneNotes 자동 마이그레이션 ──
+// onEditorInput에서 parseFromEditor 직후 호출
+// prevMap: { insertId → oldSceneNum }  /  최신 매핑은 _insertIdToSceneNum
+function migrateInsertSceneData(prevMap) {
+  let changed = false;
+  for (const [insertId, newNum] of Object.entries(_insertIdToSceneNum)) {
+    const oldNum = prevMap[insertId];
+    if (!oldNum || String(oldNum) === String(newNum)) continue;
+    // sceneExtras 이전
+    if (sceneExtras[oldNum]) {
+      if (!sceneExtras[newNum]) sceneExtras[newNum] = {};
+      Object.assign(sceneExtras[newNum], sceneExtras[oldNum]);
+      delete sceneExtras[oldNum];
+      changed = true;
+    }
+    // sceneNotes 이전
+    if (sceneNotes[oldNum] !== undefined) {
+      sceneNotes[newNum] = sceneNotes[oldNum];
+      delete sceneNotes[oldNum];
+      changed = true;
+    }
+    // sched 이전
+    for (const date of Object.keys(sched)) {
+      const arr = sched[date] || [];
+      const idx = arr.findIndex(n => String(n) === String(oldNum));
+      if (idx >= 0) { arr[idx] = newNum; changed = true; }
+    }
+  }
+  if (changed) save();
+}
+
+// ── 인서트씬 생성 시 해당 구간 elem-tag 요소 부모씬 → 인서트씬 자동 이동 ──
+// insertId 단락의 elem-tag span과 일치하는 항목을 부모씬 sceneExtras에서 제거 후
+// 인서트씬 sceneExtras로 이동 (breakdown, 각종 리스트 자동 반영)
+function autoMigrateElemsToInsert(insertId, parentSnumKey, insertSnum) {
+  const ELEM_TO_FIELD = {
+    costume:  'costumeItems',  makeup:   'makeupItems',
+    charProp: 'charPropItems', setProp:  'setPropItems',
+    vfx:      'vfxItems',      etc:      'etcItems',
+  };
+  const insertParas = [...ed().querySelectorAll(`p[data-insert-id="${insertId}"]`)];
+  if (!insertParas.length) return false;
+  const parentExtra = sceneExtras[parentSnumKey];
+  if (!parentExtra) return false;
+
+  let migrated = false;
+  for (const p of insertParas) {
+    for (const span of p.querySelectorAll('span.elem-tag[data-elem-type]')) {
+      const type  = span.dataset.elemType;
+      const field = ELEM_TO_FIELD[type];
+      if (!field) continue;
+      const text = span.textContent.trim();
+      if (!text) continue;
+      const parentItems = parentExtra[field];
+      if (!parentItems?.length) continue;
+      const idx = parentItems.findIndex(it => getItemText(it) === text);
+      if (idx < 0) continue;
+      // 부모씬에서 제거
+      const [item] = parentItems.splice(idx, 1);
+      removeFromListField(String(parentSnumKey), ITEMS_TO_LIST[field], text);
+      // 인서트씬에 추가
+      if (!sceneExtras[insertSnum]) sceneExtras[insertSnum] = {};
+      if (!sceneExtras[insertSnum][field]) sceneExtras[insertSnum][field] = [];
+      if (!sceneExtras[insertSnum][field].some(it => getItemText(it) === text)) {
+        sceneExtras[insertSnum][field].push(item);
+        appendToListField(insertSnum, ITEMS_TO_LIST[field], text);
+      }
+      migrated = true;
+    }
+  }
+  return migrated;
+}
+
 // ── 인서트씬 등록 모달 ────────────────────────────
 function closeInsModal() {
   document.getElementById('insModal').classList.remove('open');
@@ -2960,6 +3016,9 @@ function confirmInsertScene() {
 
       // 장소 → locationInfo 자동 등록
       if (loc && !locationInfo[loc]) locationInfo[loc] = { address: '', setPropItems: [] };
+
+      // 4) 인서트 구간의 elem-tag 요소 → 부모씬에서 인서트씬으로 자동 이동
+      if (parentSeq) autoMigrateElemsToInsert(markerId, parentSeq, snum);
     }
   }
 
@@ -2967,6 +3026,8 @@ function confirmInsertScene() {
   // 열려 있는 탭 갱신
   if (document.getElementById('tab-breakdown')?.classList.contains('on')) renderBreakdown();
   if (document.getElementById('tab-scenebd')?.classList.contains('on')) renderSceneBd();
+  if (document.getElementById('tab-proplist')?.classList.contains('on'))  renderPropList();
+  if (document.getElementById('tab-loclist')?.classList.contains('on'))   renderLocList();
   renderSidebar();
 }
 

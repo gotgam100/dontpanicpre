@@ -7,7 +7,7 @@
  *     Firebase SDK manages its own offline cache via IndexedDB.
  */
 
-const VERSION = "v152-2026-05-28-insert-scene-stable-num";
+const VERSION = "v153-2026-05-28-insert-scene-dom-order-migrate";
 const SHELL_CACHE  = `shell-${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
 
