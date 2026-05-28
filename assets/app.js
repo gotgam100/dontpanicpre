@@ -1697,9 +1697,33 @@ function parseFromEditor() {
   ed().querySelectorAll('span.elem-insert').forEach(sp => {
     delete sp.dataset.sceneNum; delete sp.dataset.parentSceneNum;
   });
-  // 인서트 매핑 초기화
   _insertIdToSceneNum = {};
 
+  // ── 1차 패스: insertId 안정 번호 사전 할당 ─────────────────────────────────
+  // DOM 순서 대신 insertId(생성시각 기반) 정렬로 sceneNum 결정.
+  // 이유: ① 인서트씬 순서 변경 시 sceneExtras 키(=등록 요소) 유지
+  //       ② 스크립트 중간에 헤딩이 추가돼도 stale insertParentSeq 문제 방지
+  {
+    let tSeq = 0;
+    const idsByParent = {}; // { parentSeq: Set<insertId> }
+    paras.forEach(p => {
+      if (!p.textContent.trim()) return;
+      const t = p.dataset.type || guessType(p.textContent.trim());
+      if (t === 'heading') { tSeq++; }
+      else if (p.dataset.insertId && tSeq > 0) {
+        if (!idsByParent[tSeq]) idsByParent[tSeq] = new Set();
+        idsByParent[tSeq].add(p.dataset.insertId);
+      }
+    });
+    // 부모씬별 insertId 정렬(=생성 순서) → 안정 번호 부여
+    Object.entries(idsByParent).forEach(([pSeq, idSet]) => {
+      [...idSet].sort().forEach((id, i) => {
+        insertGroupSeqMap[`${pSeq}:${id}`] = `${pSeq}_ins${i + 1}`;
+      });
+    });
+  }
+
+  // ── 2차 패스: lines 배열 빌드 ────────────────────────────────────────────
   paras.forEach(p => {
     const text = p.textContent.trim();
     if (!text) return;
@@ -1710,38 +1734,35 @@ function parseFromEditor() {
       p.dataset.sceneNum = seq;
       insSeqMap[seq] = 0;
     } else if (insertId && seq > 0) {
-      if (!p.dataset.insertParentSeq) p.dataset.insertParentSeq = String(seq);
-      const parentSeq = Number(p.dataset.insertParentSeq || seq);
-      const groupKey = `${parentSeq}:${insertId}`;
-      if (!insertGroupSeqMap[groupKey]) {
-        insSeqMap[parentSeq] = (insSeqMap[parentSeq] || 0) + 1;
-        insertGroupSeqMap[groupKey] = `${parentSeq}_ins${insSeqMap[parentSeq]}`;
-      }
-      p.dataset.sceneNum = insertGroupSeqMap[groupKey];
+      // 항상 현재 seq를 parentSeq로 사용 (stale insertParentSeq 무시)
+      const parentSeq = seq;
+      const groupKey  = `${parentSeq}:${insertId}`;
+      const sceneNum  = insertGroupSeqMap[groupKey] || `${parentSeq}_ins?`;
+      p.dataset.sceneNum       = sceneNum;
       p.dataset.parentSceneNum = String(parentSeq);
-      // 전역 매핑 갱신 — PM 재렌더 후에도 insertId로 씬 번호 조회 가능
-      _insertIdToSceneNum[insertId] = insertGroupSeqMap[groupKey];
+      _insertIdToSceneNum[insertId] = sceneNum;
       lines.push({
         type: 'insertLine',
         originalType: type,
         text,
         insertId,
-        insertIE: p.dataset.insertIe || '',
-        insertTime: p.dataset.insertTime || '',
-        insertLoc: p.dataset.insertLoc || '',
+        insertIE:   p.dataset.insertIe   || '',
+        insertTime: p.dataset.insertTime  || '',
+        insertLoc:  p.dataset.insertLoc   || '',
         parentSeq,
+        sceneNum,   // stable sceneNum → buildScenes에 직접 전달
       });
     } else if (type === 'insert' && seq > 0) {
       // 레거시: l-insert 단락
       insSeqMap[seq] = (insSeqMap[seq] || 0) + 1;
-      p.dataset.sceneNum = `${seq}_ins${insSeqMap[seq]}`;
+      p.dataset.sceneNum       = `${seq}_ins${insSeqMap[seq]}`;
       p.dataset.parentSceneNum = seq;
     } else if (seq > 0) {
       p.dataset.sceneNum = seq;
-      // 신규: 단락 내 elem-insert 스팬 감지
+      // 단락 내 elem-insert 스팬
       p.querySelectorAll('span.elem-insert').forEach(span => {
         insSeqMap[seq] = (insSeqMap[seq] || 0) + 1;
-        span.dataset.sceneNum = `${seq}_ins${insSeqMap[seq]}`;
+        span.dataset.sceneNum       = `${seq}_ins${insSeqMap[seq]}`;
         span.dataset.parentSceneNum = seq;
         lines.push({ type: 'insert', text: span.textContent.trim(), spanBased: true, parentSeq: seq });
       });
@@ -1823,10 +1844,9 @@ function buildScenes(lines) {
       const key = `${parentSeq}:${line.insertId}`;
       let ins = insertGroupMap[key];
       if (!ins) {
-        insSeqMap[parentSeq] = (insSeqMap[parentSeq] || 0) + 1;
         const insertHeading = line.insertLoc || cur.loc || '인서트 헤딩';
         ins = {
-          number:     `${parentSeq}_ins${insSeqMap[parentSeq]}`,
+          number:     line.sceneNum,  // parseFromEditor가 1차 패스에서 할당한 stable sceneNum
           displayNum: 'INS',
           heading:    insertHeading,
           parentNum:  parentSeq, isInsert: true,
