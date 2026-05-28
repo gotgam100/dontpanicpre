@@ -973,6 +973,7 @@ let costumeSort       = 'default'; // 'default'|'char'|'category'|'status'
 let pageNumberStyle   = null;     // null | 'single' | 'total'
 let _pendingInsertRange = null;   // 인서트씬 등록 모달 대기 중 Range
 let _pendingInsertMarkerId = null; // 모달 열기 전 삽입된 span 추적 ID
+let _pendingInsertIsEdit = false;  // true면 수정 모드 (새 등록이 아님)
 
 // insertId → 인서트씬 sceneNum 매핑 (parseFromEditor 실행 시 갱신)
 // PM 재렌더로 data-scene-num 이 지워져도 올바른 씬 번호를 찾을 수 있도록
@@ -2756,38 +2757,20 @@ function addInsertToSelection(btn) {
   const range = sel.getRangeAt(0);
   const currentP = getTopLevelEditorPara(range.commonAncestorContainer);
 
-  // 이미 인서트 그룹 안에 있으면 → 해당 인서트 그룹 전체 토글 제거
+  // 이미 인서트 그룹 안에 있으면 → 수정 모달 열기 (삭제는 모달 내 버튼으로)
   if (currentP?.dataset.insertId) {
     const insertId = currentP.dataset.insertId;
-    pushUndo();
-    // sceneExtras / sched 등 부가 데이터 먼저 정리
-    ed().querySelectorAll(`p[data-insert-id="${insertId}"]`).forEach(p => {
-      const snum = p.dataset.sceneNum;
-      if (snum) {
-        delete sceneExtras[snum];
-        delete sceneNotes[snum];
-        Object.keys(sched).forEach(date => {
-          sched[date] = (sched[date] || []).filter(n => String(n) !== String(snum));
-        });
-      }
-    });
-    // PM 트랜잭션으로 insert attrs 제거
-    if (window.DPEditor?.isReady()) {
-      window.DPEditor.clearInsertGroup(insertId);
-    } else {
-      ed().querySelectorAll(`p[data-insert-id="${insertId}"]`).forEach(p => {
-        delete p.dataset.insertId;
-        delete p.dataset.insertContent;
-        delete p.dataset.insertIe;
-        delete p.dataset.insertTime;
-        delete p.dataset.insertLoc;
-        delete p.dataset.insertParentSeq;
-      });
-    }
-    sel.removeAllRanges();
-    flashBtn(btn);
-    onEditorInput();
-    save();
+    const insertParas = [...ed().querySelectorAll(`p[data-insert-id="${insertId}"]`)];
+    _pendingInsertMarkerId = insertId;
+    _pendingInsertIsEdit   = true;
+    // 모달 수정 모드로 열기
+    document.getElementById('insModalTitle').textContent   = '🎬 인서트씬 수정';
+    document.getElementById('insModalDescSec').style.display = 'none';
+    document.getElementById('insDeleteBtn').classList.remove('hidden');
+    document.getElementById('insConfirmBtn').textContent   = '수정';
+    document.getElementById('insLocInput').value = insertParas[0]?.dataset.insertLoc || '';
+    document.getElementById('insModal').classList.add('open');
+    setTimeout(() => document.getElementById('insLocInput').focus(), 80);
     return;
   }
 
@@ -2930,11 +2913,91 @@ function autoMigrateElemsToInsert(insertId, parentSnumKey, insertSnum) {
   return migrated;
 }
 
+// ── 인서트씬 모달 UI 초기화 헬퍼 ──
+function _resetInsModal() {
+  document.getElementById('insModalTitle').textContent     = '🎬 인서트씬 등록';
+  document.getElementById('insModalDescSec').style.display = '';
+  document.getElementById('insDeleteBtn').classList.add('hidden');
+  document.getElementById('insConfirmBtn').textContent     = '등록';
+}
+
+// ── 인서트씬 삭제 (모달 내 삭제 버튼) ──
+// 삭제 전 해당 구간 요소를 부모씬으로 복원
+function deleteCurrentInsertScene() {
+  const insertId = _pendingInsertMarkerId;
+  if (!insertId) { closeInsModal(); return; }
+  _pendingInsertMarkerId = null;
+  _pendingInsertIsEdit   = false;
+  document.getElementById('insModal').classList.remove('open');
+  _resetInsModal();
+  pushUndo();
+  // 요소 부모씬으로 복원 먼저
+  restoreInsertElemsToParent(insertId);
+  // sceneExtras / sched 정리
+  ed().querySelectorAll(`p[data-insert-id="${insertId}"]`).forEach(p => {
+    const snum = p.dataset.sceneNum;
+    if (snum) {
+      delete sceneExtras[snum];
+      delete sceneNotes[snum];
+      Object.keys(sched).forEach(date => {
+        sched[date] = (sched[date] || []).filter(n => String(n) !== String(snum));
+      });
+    }
+  });
+  if (window.DPEditor?.isReady()) {
+    window.DPEditor.clearInsertGroup(insertId);
+  } else {
+    ed().querySelectorAll(`p[data-insert-id="${insertId}"]`).forEach(p => {
+      delete p.dataset.insertId;
+      delete p.dataset.insertContent;
+      delete p.dataset.insertIe;
+      delete p.dataset.insertTime;
+      delete p.dataset.insertLoc;
+      delete p.dataset.insertParentSeq;
+    });
+  }
+  onEditorInput();
+  save();
+}
+
+// ── 인서트씬 삭제 시 등록 요소 → 부모씬으로 자동 복원 ──
+function restoreInsertElemsToParent(insertId) {
+  const FIELDS = ['costumeItems','makeupItems','charPropItems','setPropItems','vfxItems','etcItems'];
+  const insertParas = [...ed().querySelectorAll(`p[data-insert-id="${insertId}"]`)];
+  if (!insertParas.length) return;
+  const insertSnum    = insertParas[0].dataset.sceneNum;
+  const parentSnumStr = insertParas[0].dataset.parentSceneNum || insertParas[0].dataset.insertParentSeq;
+  if (!insertSnum || !parentSnumStr) return;
+  const insertExtra = sceneExtras[insertSnum];
+  if (!insertExtra) return;
+  for (const field of FIELDS) {
+    const items = insertExtra[field];
+    if (!items?.length) continue;
+    if (!sceneExtras[parentSnumStr]) sceneExtras[parentSnumStr] = {};
+    if (!sceneExtras[parentSnumStr][field]) sceneExtras[parentSnumStr][field] = [];
+    for (const item of items) {
+      const text = getItemText(item);
+      if (!text) continue;
+      if (!sceneExtras[parentSnumStr][field].some(it => getItemText(it) === text)) {
+        sceneExtras[parentSnumStr][field].push(item);
+        appendToListField(String(parentSnumStr), ITEMS_TO_LIST[field], text);
+      }
+    }
+  }
+}
+
 // ── 인서트씬 등록 모달 ────────────────────────────
 function closeInsModal() {
   document.getElementById('insModal').classList.remove('open');
   _pendingInsertRange = null;
-  // 취소 시 — 마킹을 되돌리기
+  _resetInsModal();
+  // 수정 모드 취소: 변경 없이 그냥 닫기
+  if (_pendingInsertIsEdit) {
+    _pendingInsertMarkerId = null;
+    _pendingInsertIsEdit   = false;
+    return;
+  }
+  // 신규 등록 취소 — 마킹을 되돌리기
   if (_pendingInsertMarkerId) {
     const mid = _pendingInsertMarkerId;
     _pendingInsertMarkerId = null;
@@ -2964,6 +3027,32 @@ function confirmInsertScene() {
   if (!_pendingInsertMarkerId) { closeInsModal(); return; }
 
   const loc = document.getElementById('insLocInput').value.trim() || '인서트 헤딩';
+
+  // ── 수정 모드: 헤딩(loc)만 업데이트하고 반환 ──
+  if (_pendingInsertIsEdit) {
+    const insertId = _pendingInsertMarkerId;
+    _pendingInsertMarkerId = null;
+    _pendingInsertIsEdit   = false;
+    document.getElementById('insModal').classList.remove('open');
+    _resetInsModal();
+    const insertParas = [...ed().querySelectorAll(`p[data-insert-id="${insertId}"]`)];
+    // PM 또는 DOM 직접 업데이트
+    if (window.DPEditor?.isReady()) {
+      window.DPEditor.updateInsertGroup(insertId, { insertLoc: loc });
+    } else {
+      insertParas.forEach(p => { p.dataset.insertLoc = loc; });
+    }
+    // sceneExtras 즉시 반영
+    const editSnum = insertParas[0]?.dataset.sceneNum;
+    if (editSnum && sceneExtras[editSnum]) sceneExtras[editSnum].loc = loc;
+    const editScene = scenes.find(sc => String(sc.number) === String(editSnum));
+    if (editScene) { editScene.heading = loc; editScene.loc = loc; }
+    save();
+    renderSidebar();
+    if (document.getElementById('tab-breakdown')?.classList.contains('on')) renderBreakdown();
+    if (document.getElementById('tab-scenebd')?.classList.contains('on'))   renderSceneBd();
+    return;
+  }
 
   // 1) 모달 닫기 (closeInsModal의 취소 분기를 건너뜀)
   const markerId = _pendingInsertMarkerId;

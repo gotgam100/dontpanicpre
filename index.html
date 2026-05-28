@@ -1286,11 +1286,11 @@
     </div>
   </div>
 
-  <!-- ═══ 인서트씬 등록 모달 ═══ -->
+  <!-- ═══ 인서트씬 등록/수정 모달 ═══ -->
   <div class="ins-modal-overlay" id="insModal" onclick="if(event.target===this)closeInsModal()">
     <div class="ins-modal">
-      <div class="ins-modal-title">🎬 인서트씬 등록</div>
-      <div class="ins-modal-sec">
+      <div class="ins-modal-title" id="insModalTitle">🎬 인서트씬 등록</div>
+      <div class="ins-modal-sec" id="insModalDescSec">
         <div class="ins-modal-desc">인서트씬 전체를 선택해주세요.</div>
       </div>
       <div class="ins-modal-sec">
@@ -1299,8 +1299,10 @@
           onkeydown="if(event.key==='Enter')confirmInsertScene()">
       </div>
       <div class="ins-modal-btns">
+        <button class="ins-modal-btn danger hidden" id="insDeleteBtn" onclick="deleteCurrentInsertScene()">삭제</button>
+        <div style="flex:1"></div>
         <button class="ins-modal-btn" onclick="closeInsModal()">취소</button>
-        <button class="ins-modal-btn primary" onclick="confirmInsertScene()">등록</button>
+        <button class="ins-modal-btn primary" id="insConfirmBtn" onclick="confirmInsertScene()">등록</button>
       </div>
     </div>
   </div>

@@ -1340,6 +1340,7 @@ kbd {
 .ins-modal-btns { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
 .ins-modal-btn { padding:6px 16px; border-radius:6px; font-size:13px; cursor:pointer; font-family:inherit; border:1px solid var(--border); background:var(--surface2); color:var(--text); }
 .ins-modal-btn.primary { background:#fb923c; color:#fff; border-color:#fb923c; font-weight:600; }
+.ins-modal-btn.danger  { background:rgba(248,113,113,.12); color:#f87171; border-color:rgba(248,113,113,.3); }
 .ins-modal-btn:hover { opacity:.85; }
 .confirm-modal p { font-size: 13px; line-height: 1.7; margin: 0 0 20px; word-break: keep-all; white-space: pre-line; }
 .dr-btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
