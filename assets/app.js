@@ -2931,19 +2931,21 @@ function deleteCurrentInsertScene() {
   document.getElementById('insModal').classList.remove('open');
   _resetInsModal();
   pushUndo();
-  // 요소 부모씬으로 복원 먼저
-  restoreInsertElemsToParent(insertId);
+
+  // 삭제 전 JS 매핑으로 sceneNum 확정 (DOM attr은 PM 재렌더 시 지워질 수 있음)
+  const insertSnum = _insertIdToSceneNum[insertId];
+
+  // 요소 부모씬으로 복원 먼저 (sceneExtras 삭제 전에 호출)
+  restoreInsertElemsToParent(insertId, insertSnum);
+
   // sceneExtras / sched 정리
-  ed().querySelectorAll(`p[data-insert-id="${insertId}"]`).forEach(p => {
-    const snum = p.dataset.sceneNum;
-    if (snum) {
-      delete sceneExtras[snum];
-      delete sceneNotes[snum];
-      Object.keys(sched).forEach(date => {
-        sched[date] = (sched[date] || []).filter(n => String(n) !== String(snum));
-      });
-    }
-  });
+  if (insertSnum) {
+    delete sceneExtras[insertSnum];
+    delete sceneNotes[insertSnum];
+    Object.keys(sched).forEach(date => {
+      sched[date] = (sched[date] || []).filter(n => String(n) !== String(insertSnum));
+    });
+  }
   if (window.DPEditor?.isReady()) {
     window.DPEditor.clearInsertGroup(insertId);
   } else {
@@ -2956,19 +2958,28 @@ function deleteCurrentInsertScene() {
       delete p.dataset.insertParentSeq;
     });
   }
+  // PM onChange → onEditorInput()이 자동 호출되므로,
+  // 비-PM 경우만 수동 호출. PM도 안전하게 추가 호출.
   onEditorInput();
+  // breakdown / 리스트 탭 명시적 갱신 (onEditorInput은 renderSidebar만 호출)
+  if (document.getElementById('tab-breakdown')?.classList.contains('on')) renderBreakdown();
+  if (document.getElementById('tab-scenebd')?.classList.contains('on'))   renderSceneBd();
+  if (document.getElementById('tab-proplist')?.classList.contains('on'))  renderPropList();
+  if (document.getElementById('tab-loclist')?.classList.contains('on'))   renderLocList();
   save();
 }
 
 // ── 인서트씬 삭제 시 등록 요소 → 부모씬으로 자동 복원 ──
-function restoreInsertElemsToParent(insertId) {
+// insertSnum: JS _insertIdToSceneNum에서 미리 확정한 값 (DOM attr 의존 제거)
+function restoreInsertElemsToParent(insertId, insertSnum) {
   const FIELDS = ['costumeItems','makeupItems','charPropItems','setPropItems','vfxItems','etcItems'];
-  const insertParas = [...ed().querySelectorAll(`p[data-insert-id="${insertId}"]`)];
-  if (!insertParas.length) return;
-  const insertSnum    = insertParas[0].dataset.sceneNum;
-  const parentSnumStr = insertParas[0].dataset.parentSceneNum || insertParas[0].dataset.insertParentSeq;
-  if (!insertSnum || !parentSnumStr) return;
-  const insertExtra = sceneExtras[insertSnum];
+  // insertSnum이 없으면 JS 매핑에서 재시도
+  const snum = insertSnum || _insertIdToSceneNum[insertId];
+  if (!snum) return;
+  // 부모씬 번호: "2_ins1" → "2"
+  const parentSnumStr = String(snum).replace(/_ins\d+$/, '');
+  if (!parentSnumStr || parentSnumStr === String(snum)) return;
+  const insertExtra = sceneExtras[snum];
   if (!insertExtra) return;
   for (const field of FIELDS) {
     const items = insertExtra[field];
@@ -2980,7 +2991,7 @@ function restoreInsertElemsToParent(insertId) {
       if (!text) continue;
       if (!sceneExtras[parentSnumStr][field].some(it => getItemText(it) === text)) {
         sceneExtras[parentSnumStr][field].push(item);
-        appendToListField(String(parentSnumStr), ITEMS_TO_LIST[field], text);
+        appendToListField(parentSnumStr, ITEMS_TO_LIST[field], text);
       }
     }
   }
@@ -3031,26 +3042,31 @@ function confirmInsertScene() {
   // ── 수정 모드: 헤딩(loc)만 업데이트하고 반환 ──
   if (_pendingInsertIsEdit) {
     const insertId = _pendingInsertMarkerId;
+    // JS 매핑으로 sceneNum 확정 (DOM attr은 PM 재렌더 후 신뢰 불가)
+    const editSnum = _insertIdToSceneNum[insertId];
     _pendingInsertMarkerId = null;
     _pendingInsertIsEdit   = false;
     document.getElementById('insModal').classList.remove('open');
     _resetInsModal();
-    const insertParas = [...ed().querySelectorAll(`p[data-insert-id="${insertId}"]`)];
-    // PM 또는 DOM 직접 업데이트
+    // PM 또는 DOM 직접 업데이트 (updateInsertGroup은 onChange→onEditorInput 자동 유발)
     if (window.DPEditor?.isReady()) {
+      // sceneExtras를 먼저 업데이트 → onChange→onEditorInput에서 올바른 loc 반영
+      if (editSnum && sceneExtras[editSnum]) sceneExtras[editSnum].loc = loc;
       window.DPEditor.updateInsertGroup(insertId, { insertLoc: loc });
+      // onEditorInput이 자동 호출되므로 renderSidebar 등 중복 호출 불필요.
+      // 단, breakdown 탭은 onEditorInput에서 갱신 안 하므로 명시 호출
+      if (document.getElementById('tab-breakdown')?.classList.contains('on')) renderBreakdown();
+      if (document.getElementById('tab-scenebd')?.classList.contains('on'))   renderSceneBd();
     } else {
-      insertParas.forEach(p => { p.dataset.insertLoc = loc; });
+      ed().querySelectorAll(`p[data-insert-id="${insertId}"]`).forEach(p => { p.dataset.insertLoc = loc; });
+      if (editSnum && sceneExtras[editSnum]) sceneExtras[editSnum].loc = loc;
+      const editScene = scenes.find(sc => String(sc.number) === String(editSnum));
+      if (editScene) { editScene.heading = loc; editScene.loc = loc; }
+      onEditorInput();
+      if (document.getElementById('tab-breakdown')?.classList.contains('on')) renderBreakdown();
+      if (document.getElementById('tab-scenebd')?.classList.contains('on'))   renderSceneBd();
     }
-    // sceneExtras 즉시 반영
-    const editSnum = insertParas[0]?.dataset.sceneNum;
-    if (editSnum && sceneExtras[editSnum]) sceneExtras[editSnum].loc = loc;
-    const editScene = scenes.find(sc => String(sc.number) === String(editSnum));
-    if (editScene) { editScene.heading = loc; editScene.loc = loc; }
     save();
-    renderSidebar();
-    if (document.getElementById('tab-breakdown')?.classList.contains('on')) renderBreakdown();
-    if (document.getElementById('tab-scenebd')?.classList.contains('on'))   renderSceneBd();
     return;
   }
 
