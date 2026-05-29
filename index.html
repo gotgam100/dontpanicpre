@@ -80,6 +80,7 @@
           <div class="lp-logo-wrap">
             <span class="lp-logo-a">Don't Panic</span>
             <span class="lp-logo-b">Pre</span>
+            <span style="font-size:12px;font-weight:600;letter-spacing:.08em;color:#fbbf24;opacity:.7;align-self:flex-end;margin-bottom:6px;margin-left:4px">beta</span>
           </div>
           <div class="lp-tagline">영화·영상 프리 프로덕션을 위한 올인원 협업 도구.<br>스크립트 한 줄에서 현장까지.</div>
           <button class="lp-hero-start-btn" onclick="dismissLanding()">시작하기 →</button>
@@ -230,15 +231,15 @@
       <section class="lp-cta-sec">
         <div class="lp-cta-in lp-reveal">
           <div class="lp-cta-logo">
-            <span style="color:#fbbf24">Don't Panic</span> Pre
+            <span style="color:#fbbf24">Don't Panic</span> Pre<span style="font-size:13px;font-weight:600;letter-spacing:.06em;color:#fbbf24;opacity:.6;margin-left:6px;vertical-align:middle">beta</span>
           </div>
           <p class="lp-cta-sub">지금 바로 시작해보세요.</p>
           <button class="lp-cta-btn" onclick="dismissLanding()">시작하기 →</button>
-          <p class="lp-platform-info">Mac · PC · iPad에 최적화 · 모바일 지원</p>
+          <p class="lp-platform-info">Mac 및 크롬 브라우저에 최적화</p>
           <div class="lp-footer-links">
             <div class="lp-footer-col">
               <div class="lp-footer-col-title">제품</div>
-              <a class="lp-footer-link" href="#">릴리스 노트</a>
+              <a class="lp-footer-link" href="https://gotgam100.github.io/dontpanicpre/release-notes.html" target="_blank" rel="noopener">릴리스 노트</a>
               <a class="lp-footer-link" href="https://gotgam100.github.io/dontpanicpre/guide.html" target="_blank" rel="noopener">사용 가이드</a>
             </div>
             <div class="lp-footer-col">
@@ -461,7 +462,7 @@
       <div class="sidebar-header">
         <span class="sidebar-app-title" onclick="showAbout()" title="프로그램 정보" style="cursor:pointer"><span
             style="color:#fbbf24">Don't Panic</span> Pre<span
-            style="font-size:0.52em;font-weight:400;opacity:.45;margin-left:5px;letter-spacing:0">ver.1.1</span></span>
+            style="font-size:0.52em;font-weight:400;opacity:.45;margin-left:5px;letter-spacing:0">beta</span></span>
         <button class="sidebar-toggle-btn" id="sidebarToggleBtn" onclick="toggleSidebar()" title="사이드바 접기"
           aria-label="사이드바 접기">
           <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -612,7 +613,7 @@
       <div class="mobile-nav-overlay" id="mobileNavOverlay" onclick="closeMobileNav()"></div>
       <nav class="mobile-nav-drawer" id="mobileNavDrawer">
         <div class="mobile-drawer-logo"><span style="color:#fbbf24">Don't Panic</span> Pre <span
-            style="font-size:11px;color:var(--text-dim);font-weight:400">ver.1.1</span></div>
+            style="font-size:11px;color:var(--text-dim);font-weight:400">beta</span></div>
         <button class="mobile-drawer-item on" data-tab="editor" onclick="mobileTab('editor',   this)">🖊 스크립트</button>
         <button class="mobile-drawer-item" data-tab="breakdown" onclick="mobileTab('breakdown',this)">🗂 씬리스트</button>
         <button class="mobile-drawer-item" data-tab="loclist" onclick="mobileTab('loclist',  this)">📍 장소리스트</button>
@@ -1232,7 +1233,7 @@
       <div class="about-logo">
         <span style="color:#fbbf24">Don't Panic</span> <span style="color:var(--text)">Pre</span>
       </div>
-      <div class="about-ver">Ver 1.1</div>
+      <div class="about-ver">beta</div>
       <div class="about-divider"></div>
       <p class="about-desc">
         Don't Panic Pre는<br> 스크립트와 촬영 스케줄을 연동하는 웹 프로그램으로,<br>
@@ -1306,9 +1307,12 @@
         <div class="ins-modal-lbl">시간대</div>
         <div class="ins-chip-group" id="insTime">
           <button class="ins-chip" data-val="새벽" onmousedown="event.preventDefault()" onclick="insChipSelect('insTime',this)">새벽</button>
-          <button class="ins-chip on" data-val="낮" onmousedown="event.preventDefault()" onclick="insChipSelect('insTime',this)">낮</button>
+          <button class="ins-chip" data-val="오전" onmousedown="event.preventDefault()" onclick="insChipSelect('insTime',this)">오전</button>
+          <button class="ins-chip on" data-val="오후" onmousedown="event.preventDefault()" onclick="insChipSelect('insTime',this)">오후</button>
+          <button class="ins-chip" data-val="해질녘" onmousedown="event.preventDefault()" onclick="insChipSelect('insTime',this)">해질녘</button>
           <button class="ins-chip" data-val="저녁" onmousedown="event.preventDefault()" onclick="insChipSelect('insTime',this)">저녁</button>
           <button class="ins-chip" data-val="밤" onmousedown="event.preventDefault()" onclick="insChipSelect('insTime',this)">밤</button>
+          <button class="ins-chip" data-val="미정" onmousedown="event.preventDefault()" onclick="insChipSelect('insTime',this)">미정</button>
         </div>
       </div>
       <div class="ins-modal-sec">
@@ -1382,23 +1386,29 @@
       </div>
 
       <div class="hm-field">
-        <label class="hm-label">장소명</label>
-        <input type="text" id="hmLoc" class="hm-input" placeholder="장소명 입력"
-          onkeydown="if(event.key==='Enter')confirmHeading()">
-      </div>
-
-      <div class="hm-field">
         <label class="hm-label">시간대</label>
         <div class="hm-chip-group" id="hmTime">
           <button class="hm-chip" data-val="새벽" onmousedown="event.preventDefault()"
             onclick="hmSelect('hmTime',this)">새벽</button>
-          <button class="hm-chip on" data-val="낮" onmousedown="event.preventDefault()"
-            onclick="hmSelect('hmTime',this)">낮</button>
+          <button class="hm-chip" data-val="오전" onmousedown="event.preventDefault()"
+            onclick="hmSelect('hmTime',this)">오전</button>
+          <button class="hm-chip on" data-val="오후" onmousedown="event.preventDefault()"
+            onclick="hmSelect('hmTime',this)">오후</button>
+          <button class="hm-chip" data-val="해질녘" onmousedown="event.preventDefault()"
+            onclick="hmSelect('hmTime',this)">해질녘</button>
           <button class="hm-chip" data-val="저녁" onmousedown="event.preventDefault()"
             onclick="hmSelect('hmTime',this)">저녁</button>
           <button class="hm-chip" data-val="밤" onmousedown="event.preventDefault()"
             onclick="hmSelect('hmTime',this)">밤</button>
+          <button class="hm-chip" data-val="미정" onmousedown="event.preventDefault()"
+            onclick="hmSelect('hmTime',this)">미정</button>
         </div>
+      </div>
+
+      <div class="hm-field">
+        <label class="hm-label">장소명</label>
+        <input type="text" id="hmLoc" class="hm-input" placeholder="장소명 입력"
+          onkeydown="if(event.key==='Enter')confirmHeading()">
       </div>
 
       <div class="hm-footer">

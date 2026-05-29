@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>릴리스 노트 | Don't Panic Pre</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0d0f18; --card:#171a28; --text:#eef1ff; --muted:#9aa3c2; --line:#2d3454; --accent:#fbbf24; --green:#4ade80; --purple:#a5b4fc; --orange:#fb923c; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; background:radial-gradient(circle at top left, rgba(91,110,245,.1), transparent 36%), var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",sans-serif; line-height:1.72; }
+    main { width:min(760px, calc(100% - 40px)); margin:0 auto; padding:72px 0 96px; }
+    a { color:var(--accent); text-decoration:none; }
+    .brand { font-size:14px; color:var(--accent); font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+    h1 { margin:12px 0 10px; font-size:clamp(34px, 6vw, 58px); line-height:1.05; letter-spacing:-.04em; }
+    .lead { color:var(--muted); font-size:17px; margin:0 0 48px; }
+
+    /* 릴리스 엔트리 */
+    .release { margin-bottom:48px; }
+    .release-header { display:flex; align-items:baseline; gap:14px; margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+    .release-version { font-size:22px; font-weight:800; letter-spacing:-.02em; }
+    .release-date { font-size:13px; color:var(--muted); font-weight:500; }
+    .release-tag { font-size:11px; font-weight:700; letter-spacing:.08em; padding:3px 9px; border-radius:99px; background:rgba(251,191,36,.12); color:var(--accent); border:1px solid rgba(251,191,36,.25); text-transform:uppercase; }
+
+    /* 카테고리 섹션 */
+    .cat { margin:18px 0; }
+    .cat-title { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:10px; }
+    .cat-title::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+    .cat-new .cat-title { color:var(--green); }
+    .cat-new .cat-title::before { background:var(--green); }
+    .cat-fix .cat-title { color:var(--purple); }
+    .cat-fix .cat-title::before { background:var(--purple); }
+    .cat-improve .cat-title { color:var(--orange); }
+    .cat-improve .cat-title::before { background:var(--orange); }
+
+    ul.log { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:6px; }
+    ul.log li { font-size:14px; color:var(--muted); padding:8px 14px; background:rgba(23,26,40,.6); border:1px solid var(--line); border-radius:10px; line-height:1.6; }
+    ul.log li b { color:var(--text); font-weight:600; }
+
+    .meta { margin-top:48px; padding-top:18px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; }
+    .nav { display:flex; gap:14px; flex-wrap:wrap; margin-top:28px; }
+    .nav a { border:1px solid var(--line); border-radius:999px; padding:8px 14px; color:var(--text); }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand">Don't Panic Pre</div>
+    <h1>릴리스 노트</h1>
+    <p class="lead">업데이트 내역을 정리합니다.</p>
+
+    <!-- ── Beta 1.0 ── -->
+    <div class="release">
+      <div class="release-header">
+        <span class="release-version">Beta 1.0</span>
+        <span class="release-tag">First Release</span>
+        <span class="release-date">2026년 6월 1일</span>
+      </div>
+
+      <div class="cat cat-new">
+        <div class="cat-title">New — 새 기능</div>
+        <ul class="log">
+          <li><b>스크립트 에디터</b> — 씬 헤딩, 지문, 인물명, 대사를 전용 유형으로 작성. 입력 시 자동 형식화 및 씬 번호 자동 부여.</li>
+          <li><b>인서트씬</b> — 씬 내 구간을 인서트씬으로 지정. INT/EXT, 시간대, 장소명 개별 설정 지원.</li>
+          <li><b>씬리스트</b> — 스크립트에서 씬 목록을 자동 생성. 의상, 분장, 소품, 인물소품, 특수효과, 기타 요소 관리.</li>
+          <li><b>장소리스트</b> — 씬 헤딩 장소를 자동 수집. 장소 설명·실제 촬영지 기입 및 드래그 순서 변경.</li>
+          <li><b>소품리스트</b> — 씬 브레이크다운과 연동되는 소품 통합 관리.</li>
+          <li><b>의상리스트</b> — 인물별 의상 항목 관리. 씬 브레이크다운과 연동.</li>
+          <li><b>촬영 스케줄</b> — 씬을 달력에 드래그하여 날짜별 배치. 순서 변경 시 일촬표에 자동 반영.</li>
+          <li><b>일촬표(Call Sheet)</b> — 촬영 스케줄 기반 일일촬영계획표 자동 생성. PDF 출력 지원.</li>
+          <li><b>팀 협업</b> — Google 계정 로그인, 초대 코드 기반 프로젝트 공유. 소유자·참여자·열람자 권한 구분.</li>
+          <li><b>클라우드 저장</b> — Firebase Firestore 기반 실시간 저장 및 버전 히스토리(10회 자동 백업).</li>
+          <li><b>다크/라이트 테마</b> — 헤더 토글로 테마 즉시 전환. 랜딩 페이지는 항상 다크 유지.</li>
+          <li><b>PDF 출력</b> — 씬리스트, 장소리스트, 소품리스트, 의상리스트 PDF 인쇄 지원.</li>
+          <li><b>PWA 지원</b> — 홈 화면에 추가하여 앱처럼 사용 가능. 오프라인 캐시 지원.</li>
+        </ul>
+      </div>
+
+      <div class="cat cat-improve">
+        <div class="cat-title">Improve — 개선</div>
+        <ul class="log">
+          <li><b>시간대 6종 통일</b> — 새벽·오전·오후·해질녘·저녁·밤으로 표기 일원화. '미정' 옵션 추가.</li>
+          <li><b>사이드바</b> — 접기/펼치기 지원. 씬 목록 클릭 시 스크립트 해당 위치로 이동.</li>
+          <li><b>씬리스트 D/N·I/E</b> — 읽기 전용으로 변경. 씬 헤딩 또는 인서트씬 모달에서만 수정 가능.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="nav">
+      <a href="https://dontpanicpre.web.app/#landing">앱으로 돌아가기</a>
+      <a href="privacy.html">개인정보 처리방침</a>
+      <a href="terms.html">이용약관</a>
+      <a href="support.html">고객지원</a>
+    </div>
+    <div class="meta">Don't Panic Pre · Beta</div>
+  </main>
+</body>
+</html>
